@@ -42,7 +42,17 @@ public class ExcelService {
                     boolean valid = f.exists() && f.isFile()
                             && name.endsWith(".xlsx")
                             && !name.startsWith("~");
-                    if (!valid) log.warn("Archivo inválido o no encontrado: {}", f.getPath());
+                    if (!valid) {
+                        String error = "Archivo inválido o no encontrado: " + f.getPath();
+                        log.warn(error);
+
+                        try {
+                            throw new Exception(error);
+                        } catch (Exception e) {
+                            throw new RuntimeException(e);
+                        }
+
+                    }
                     return valid;
                 })
                 .collect(Collectors.toList());
@@ -51,14 +61,18 @@ public class ExcelService {
         return validFiles.parallelStream()
                 .map(file -> {
                     log.info("Procesando archivo: {}", file.getName());
-                    return readExcelFile(file);
+                    try {
+                        return readExcelFile(file);
+                    } catch (Exception e) {
+                        throw new RuntimeException(e);
+                    }
                 })
                 .flatMap(Collection::stream)
                 .collect(Collectors.toList());
     }
 
     // ─── Lectura optimizada con SXSSFWorkbook (streaming) ────────────────────
-    private List<Map<String, String>> readExcelFile(File file) {
+    private List<Map<String, String>> readExcelFile(File file) throws Exception {
         List<Map<String, String>> allRows = new ArrayList<>(512);
 
         try (FileInputStream fis = new FileInputStream(file);
@@ -100,6 +114,7 @@ public class ExcelService {
 
         } catch (Exception e) {
             log.error("Error al leer el archivo {}: {}", file.getName(), e.getMessage());
+            throw new Exception("Error al leer el archivo " + file.getName() + " => "+ e.getMessage());
         }
 
         return allRows;
@@ -133,7 +148,6 @@ public class ExcelService {
                         ConcurrentHashMap::new
                 ));
 
-        log.info("Agrupación completada: {} grupos de {} registros", grouped.size(), allItems.size());
         return new ArrayList<>(grouped.values());
     }
 
