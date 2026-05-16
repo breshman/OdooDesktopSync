@@ -46,7 +46,8 @@ public class App {
 
             // Create browser instance pointing to the backend/frontend URL
             // Defaulting to 8080 (Spring Boot) or 5173 (Vite Dev)
-            String startUrl = "http://localhost:8080";
+//            String startUrl = "http://localhost:8018";
+            String startUrl = "https://110931090-18-0-all.runbot302.odoo.com";
             CefBrowser browser = client.createBrowser(startUrl, false, false);
             Component browserUI = browser.getUIComponent();
 

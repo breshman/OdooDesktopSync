@@ -1,7 +1,6 @@
 package com.cmp.read_excel.controller;
 
 import com.cmp.read_excel.model.AppConfigModel;
-import com.cmp.read_excel.model.ExcelItem;
 import com.cmp.read_excel.service.ConfigService;
 import com.cmp.read_excel.service.ExcelService;
 import lombok.extern.slf4j.Slf4j;
@@ -9,6 +8,7 @@ import org.springframework.http.ResponseEntity;
 import org.springframework.web.bind.annotation.*;
 
 import java.util.List;
+import java.util.Map;
 
 @Slf4j
 @RestController
@@ -24,14 +24,14 @@ public class ItemController {
     }
 
     @GetMapping
-    public ResponseEntity<List<ExcelItem>> loadItems() {
+    public ResponseEntity<List<Map<String, String>>> loadItems() {
         log.info("Loading excel files...");
-        List<ExcelItem> items = excelService.processAllExcelFiles();
+        List<Map<String, String>> items = excelService.processAndGroupItems(excelService.processAllExcelFiles());
         return ResponseEntity.ok(items);
     }
 
     @PostMapping("/send")
-    public ResponseEntity<String> sendItems(@RequestBody List<ExcelItem> items) {
+    public ResponseEntity<String> sendItems(@RequestBody List<Map<String, String>> items) {
         log.info("Received {} items to send to external API.", items.size());
         AppConfigModel config = configService.loadConfig();
         String apiUrl = "No API Configured";
@@ -42,8 +42,8 @@ public class ItemController {
         // TODO: Implement HTTP Client to send these items to 'apiUrl'
         // For now, simulating the send process
         log.info("Simulating send to: {}", apiUrl);
-        for (ExcelItem item : items) {
-            log.info("Sending item: {}", item.getCodigo());
+        for (Map<String, String> item : items) {
+            log.info("Sending item: {}", item);
         }
         
         return ResponseEntity.ok("Items processed successfully");

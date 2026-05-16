@@ -1,110 +1,174 @@
 package com.cmp.read_excel.service;
 
 import com.cmp.read_excel.model.AppConfigModel;
-import com.cmp.read_excel.model.ExcelItem;
+import com.github.pjfanning.xlsx.StreamingReader;
 import lombok.extern.slf4j.Slf4j;
 import org.apache.poi.ss.usermodel.*;
-import org.apache.poi.xssf.usermodel.XSSFWorkbook;
 import org.springframework.stereotype.Service;
 
 import java.io.File;
 import java.io.FileInputStream;
-import java.util.ArrayList;
-import java.util.List;
+import java.math.BigDecimal;
+import java.util.*;
+import java.util.concurrent.ConcurrentHashMap;
+import java.util.stream.Collectors;
 
 @Slf4j
 @Service
 public class ExcelService {
 
     private final ConfigService configService;
+    private static final int SKIP_ROWS = 11;
+    private static final String COL_EMPRESA    = "EMPRESA";
+    private static final String COL_SERIE      = "SERIE";
+    private static final String COL_NUMERO     = "NUMERO";
+    private static final String COL_IMPORTE_ME = "IMPORTE ME";
+    private static final String COL_PESO_TOTAL = "PESO TOTAL";
+    private static final String COL_CLAVE      = "CLAVE";
 
     public ExcelService(ConfigService configService) {
         this.configService = configService;
     }
 
-    public List<ExcelItem> processAllExcelFiles() {
+    // ─── Procesamiento paralelo de archivos ───────────────────────────────────
+    public List<Map<String, String>> processAllExcelFiles() {
         AppConfigModel config = configService.loadConfig();
-        List<ExcelItem> allItems = new ArrayList<>();
 
-        for (AppConfigModel.PathConfig pathConfig : config.getConfigPaths()) {
-            if (!pathConfig.isActive()) {
-                continue;
-            }
+        List<File> validFiles = config.getConfigPaths().stream()
+                .filter(AppConfigModel.PathConfig::isActive)
+                .map(p -> new File(p.getPath()))
+                .filter(f -> {
+                    String name = f.getName().toLowerCase();
+                    boolean valid = f.exists() && f.isFile()
+                            && name.endsWith(".xlsx")
+                            && !name.startsWith("~");
+                    if (!valid) log.warn("Archivo inválido o no encontrado: {}", f.getPath());
+                    return valid;
+                })
+                .collect(Collectors.toList());
 
-            String folderPath = pathConfig.getPath();
-            File folder = new File(folderPath);
-            if (!folder.exists() || !folder.isDirectory()) {
-                log.error("The configured excel path does not exist or is not a directory: {}", folderPath);
-                continue;
-            }
-
-            File[] files = folder.listFiles((dir, name) -> name.toLowerCase().endsWith(".xlsx") && !name.startsWith("~"));
-            if (files == null || files.length == 0) {
-                log.info("No .xlsx files found in {}", folderPath);
-                continue;
-            }
-
-            for (File file : files) {
-                log.info("Processing file: {}", file.getName());
-                allItems.addAll(readExcelFile(file));
-            }
-        }
-
-        return allItems;
+        // Procesar archivos en paralelo con ForkJoinPool
+        return validFiles.parallelStream()
+                .map(file -> {
+                    log.info("Procesando archivo: {}", file.getName());
+                    return readExcelFile(file);
+                })
+                .flatMap(Collection::stream)
+                .collect(Collectors.toList());
     }
 
-    private List<ExcelItem> readExcelFile(File file) {
-        List<ExcelItem> items = new ArrayList<>();
+    // ─── Lectura optimizada con SXSSFWorkbook (streaming) ────────────────────
+    private List<Map<String, String>> readExcelFile(File file) {
+        List<Map<String, String>> allRows = new ArrayList<>(512);
+
         try (FileInputStream fis = new FileInputStream(file);
-             Workbook workbook = new XSSFWorkbook(fis)) {
-             
-            Sheet sheet = workbook.getSheetAt(0); // Only reading first sheet
-            boolean firstRow = true;
+             Workbook workbook = StreamingReader.builder()
+                     .rowCacheSize(100)    // filas en memoria
+                     .bufferSize(4096)     // buffer de lectura en bytes
+                     .open(fis)) {
+
+            Sheet sheet = workbook.getSheetAt(0);
+            List<String> headers = new ArrayList<>();
+            int rowIndex = 0;
+
             for (Row row : sheet) {
-                if (firstRow) {
-                    firstRow = false; // Skip header
+                if (rowIndex < SKIP_ROWS) { rowIndex++; continue; }
+
+                if (rowIndex == SKIP_ROWS) {
+                    // Cabecera
+                    for (Cell cell : row) {
+                        headers.add(getCellValueAsString(cell).trim());
+                    }
+                    rowIndex++;
                     continue;
                 }
-                
-                // Example assumptions for columns:
-                // 0: Codigo
-                // 1: Descripcion
-                // 2: Cantidad
-                
-                ExcelItem item = new ExcelItem();
-                Cell cellCodigo = row.getCell(0);
-                if (cellCodigo != null) {
-                    cellCodigo.setCellType(CellType.STRING);
-                    item.setCodigo(cellCodigo.getStringCellValue());
+
+                // Datos
+                Map<String, String> rowMap = new LinkedHashMap<>(headers.size() * 2);
+                boolean hasData = false;
+
+                for (int i = 0; i < headers.size(); i++) {
+                    Cell cell = row.getCell(i, Row.MissingCellPolicy.RETURN_BLANK_AS_NULL);
+                    String value = cell != null ? getCellValueAsString(cell).trim() : "";
+                    if (!value.isEmpty()) hasData = true;
+                    rowMap.put(headers.get(i), value);
                 }
-                
-                Cell cellDescripcion = row.getCell(1);
-                if (cellDescripcion != null) {
-                    cellDescripcion.setCellType(CellType.STRING);
-                    item.setDescripcion(cellDescripcion.getStringCellValue());
-                }
-                
-                Cell cellCantidad = row.getCell(2);
-                if (cellCantidad != null) {
-                    if (cellCantidad.getCellType() == CellType.NUMERIC) {
-                        item.setCantidad(cellCantidad.getNumericCellValue());
-                    } else if (cellCantidad.getCellType() == CellType.STRING) {
-                        try {
-                            item.setCantidad(Double.parseDouble(cellCantidad.getStringCellValue()));
-                        } catch (NumberFormatException e) {
-                            item.setCantidad(0.0);
-                        }
-                    }
-                }
-                
-                // Only add if codigo is present
-                if (item.getCodigo() != null && !item.getCodigo().trim().isEmpty()) {
-                    items.add(item);
-                }
+
+                if (hasData) allRows.add(rowMap);
+                rowIndex++;
             }
+
         } catch (Exception e) {
-            log.error("Failed to read excel file {}: {}", file.getName(), e.getMessage());
+            log.error("Error al leer el archivo {}: {}", file.getName(), e.getMessage());
         }
-        return items;
+
+        return allRows;
+    }
+
+    // ─── Agrupación optimizada con streams y BigDecimal ──────────────────────
+    public List<Map<String, String>> processAndGroupItems(List<Map<String, String>> allItems) {
+        // Agrupar en paralelo cuando hay muchos registros
+        Map<String, Map<String, String>> grouped = allItems.parallelStream()
+                .collect(Collectors.toConcurrentMap(
+                        row -> buildKey(row),
+                        row -> {
+                            Map<String, String> newRow = new LinkedHashMap<>(row);
+                            newRow.put(COL_CLAVE,      buildKey(row));
+                            newRow.put(COL_IMPORTE_ME, row.getOrDefault(COL_IMPORTE_ME, "0"));
+                            newRow.put(COL_PESO_TOTAL, row.getOrDefault(COL_PESO_TOTAL, "0"));
+                            return newRow;
+                        },
+                        (existing, incoming) -> {
+                            // Merge: sumar IMPORTE ME y PESO TOTAL
+                            existing.put(COL_IMPORTE_ME,
+                                    parseBigDecimal(existing.get(COL_IMPORTE_ME))
+                                            .add(parseBigDecimal(incoming.get(COL_IMPORTE_ME)))
+                                            .toPlainString());
+                            existing.put(COL_PESO_TOTAL,
+                                    parseBigDecimal(existing.get(COL_PESO_TOTAL))
+                                            .add(parseBigDecimal(incoming.get(COL_PESO_TOTAL)))
+                                            .toPlainString());
+                            return existing;
+                        },
+                        ConcurrentHashMap::new
+                ));
+
+        log.info("Agrupación completada: {} grupos de {} registros", grouped.size(), allItems.size());
+        return new ArrayList<>(grouped.values());
+    }
+
+    // ─── Helpers ──────────────────────────────────────────────────────────────
+    private String buildKey(Map<String, String> row) {
+        return row.getOrDefault(COL_EMPRESA, "").trim() + " - " +
+               row.getOrDefault(COL_SERIE,   "").trim() + " - " +
+               row.getOrDefault(COL_NUMERO,  "").trim();
+    }
+
+    private String getCellValueAsString(Cell cell) {
+        if (cell == null) return "";
+        switch (cell.getCellType()) {
+            case STRING:  return cell.getStringCellValue();
+            case NUMERIC:
+                if (DateUtil.isCellDateFormatted(cell))
+                    return cell.getLocalDateTimeCellValue().toString();
+                return new BigDecimal(cell.getNumericCellValue())
+                        .stripTrailingZeros().toPlainString();
+            case BOOLEAN: return String.valueOf(cell.getBooleanCellValue());
+            case FORMULA:
+                try { return new BigDecimal(cell.getNumericCellValue())
+                        .stripTrailingZeros().toPlainString(); }
+                catch (Exception e) { return cell.getStringCellValue(); }
+            default:      return "";
+        }
+    }
+
+    private BigDecimal parseBigDecimal(String value) {
+        try {
+            if (value == null || value.isBlank()) return BigDecimal.ZERO;
+            return new BigDecimal(value.trim());
+        } catch (NumberFormatException e) {
+            log.warn("Valor numérico inválido: '{}'", value);
+            return BigDecimal.ZERO;
+        }
     }
 }
