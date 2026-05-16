@@ -23,10 +23,14 @@ public class ItemController {
         this.configService = configService;
     }
 
-    @GetMapping
-    public ResponseEntity<List<Map<String, String>>> loadItems() {
+    @PostMapping
+    public ResponseEntity<List<Map<String, String>>> loadItems(
+            @RequestBody List<String> listPaths
+    ) {
         log.info("Loading excel files...");
-        List<Map<String, String>> items = excelService.processAndGroupItems(excelService.processAllExcelFiles());
+        List<Map<String, String>> items = excelService.processAndGroupItems(
+                excelService.processAllExcelFiles(listPaths)
+        );
         return ResponseEntity.ok(items);
     }
 

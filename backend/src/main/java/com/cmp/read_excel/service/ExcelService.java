@@ -31,12 +31,12 @@ public class ExcelService {
     }
 
     // ─── Procesamiento paralelo de archivos ───────────────────────────────────
-    public List<Map<String, String>> processAllExcelFiles() {
-        AppConfigModel config = configService.loadConfig();
+    public List<Map<String, String>> processAllExcelFiles(
+            List<String> listPaths
+    ) {
 
-        List<File> validFiles = config.getConfigPaths().stream()
-                .filter(AppConfigModel.PathConfig::isActive)
-                .map(p -> new File(p.getPath()))
+        List<File> validFiles = listPaths.stream()
+                .map(File::new)
                 .filter(f -> {
                     String name = f.getName().toLowerCase();
                     boolean valid = f.exists() && f.isFile()
