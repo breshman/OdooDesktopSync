@@ -1,0 +1,57 @@
+# ========================
+# OS generated files
+# ========================
+.DS_Store
+.DS_Store?
+._*
+.Spotlight-V100
+.Trashes
+ehthumbs.db
+Thumbs.db
+
+# ========================
+# IDE / Editor
+# ========================
+.idea/
+*.iml
+*.iws
+.vscode/
+*.swp
+*.swo
+*~
+
+# ========================
+# Java / Maven
+# ========================
+target/
+*.class
+*.jar
+*.war
+*.ear
+*.log
+hs_err_pid*
+
+# ========================
+# Node / Frontend
+# ========================
+node_modules/
+dist/
+.env
+.env.*
+!.env.example
+
+# ========================
+# JCEF / Desktop
+# ========================
+jcef-bundle/
+
+# ========================
+# App Config (generated at runtime)
+# ========================
+config.json
+logs/
+
+# ========================
+# Maven Wrapper (optional - some prefer to commit it)
+# ========================
+# .mvn/wrapper/maven-wrapper.jar
