@@ -54,6 +54,8 @@ public class App {
             // Create JFrame
             JFrame frame = new JFrame("Odoo Desktop Sync");
             frame.getContentPane().add(browserUI, BorderLayout.CENTER);
+            ImageIcon icon = new ImageIcon("icons/logo odoo CMP.png");
+            frame.setIconImage(icon.getImage());
             frame.setSize(1200, 800);
             frame.setLocationRelativeTo(null); // Center on screen
             
