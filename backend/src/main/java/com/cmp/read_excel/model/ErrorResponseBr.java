@@ -2,7 +2,7 @@ package com.cmp.read_excel.model;
 
 import java.time.LocalDateTime;
 
-public class ErrorResponse {
+public class ErrorResponseBr {
 
 
     private LocalDateTime timestamp;
@@ -11,10 +11,10 @@ public class ErrorResponse {
     private String message;
     private String path;
 
-    public ErrorResponse() {
+    public ErrorResponseBr() {
     }
 
-    public ErrorResponse(
+    public ErrorResponseBr(
             LocalDateTime timestamp,
             int status,
             String error,

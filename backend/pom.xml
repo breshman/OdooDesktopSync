@@ -58,6 +58,13 @@
 			<artifactId>excel-streaming-reader</artifactId>
 			<version>4.0.4</version>
 		</dependency>
+
+
+		<dependency>
+			<groupId>com.github.ben-manes.caffeine</groupId>
+			<artifactId>caffeine</artifactId>
+		</dependency>
+
 	</dependencies>
 
 	<build>

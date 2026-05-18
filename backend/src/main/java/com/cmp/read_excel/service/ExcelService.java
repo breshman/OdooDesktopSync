@@ -17,17 +17,21 @@ import java.util.stream.Collectors;
 @Service
 public class ExcelService {
 
-    private final ConfigService configService;
+
+    private final DataSendCach dataSendCach;
+
     private static final int SKIP_ROWS = 11;
-    private static final String COL_EMPRESA    = "EMPRESA";
-    private static final String COL_SERIE      = "SERIE";
-    private static final String COL_NUMERO     = "NUMERO";
+    private static final String COL_EMPRESA = "EMPRESA";
+    private static final String COL_SERIE = "SERIE";
+    private static final String COL_NUMERO = "NUMERO";
     private static final String COL_IMPORTE_ME = "IMPORTE ME";
     private static final String COL_PESO_TOTAL = "PESO TOTAL";
-    private static final String COL_CLAVE      = "CLAVE";
+    private static final String COL_CLAVE = "unique_key";
+    private static final String TRAZABILIDAD_ID = "doc_traceability_id";
 
-    public ExcelService(ConfigService configService) {
-        this.configService = configService;
+    public ExcelService(DataSendCach dataSendCach) {
+
+        this.dataSendCach = dataSendCach;
     }
 
     // ─── Procesamiento paralelo de archivos ───────────────────────────────────
@@ -86,7 +90,10 @@ public class ExcelService {
             int rowIndex = 0;
 
             for (Row row : sheet) {
-                if (rowIndex < SKIP_ROWS) { rowIndex++; continue; }
+                if (rowIndex < SKIP_ROWS) {
+                    rowIndex++;
+                    continue;
+                }
 
                 if (rowIndex == SKIP_ROWS) {
                     // Cabecera
@@ -114,7 +121,7 @@ public class ExcelService {
 
         } catch (Exception e) {
             log.error("Error al leer el archivo {}: {}", file.getName(), e.getMessage());
-            throw new Exception("Error al leer el archivo " + file.getName() + " => "+ e.getMessage());
+            throw new Exception("Error al leer el archivo " + file.getName() + " => " + e.getMessage());
         }
 
         return allRows;
@@ -127,10 +134,21 @@ public class ExcelService {
                 .collect(Collectors.toConcurrentMap(
                         row -> buildKey(row),
                         row -> {
+
+                            String key = buildKey(row);
+
                             Map<String, String> newRow = new LinkedHashMap<>(row);
-                            newRow.put(COL_CLAVE,      buildKey(row));
+                            newRow.put(COL_CLAVE, key);
                             newRow.put(COL_IMPORTE_ME, row.getOrDefault(COL_IMPORTE_ME, "0"));
                             newRow.put(COL_PESO_TOTAL, row.getOrDefault(COL_PESO_TOTAL, "0"));
+
+
+                            String trazabilidadId = dataSendCach.get(key);
+                            if (trazabilidadId != null) {
+                                newRow.put(TRAZABILIDAD_ID, trazabilidadId);
+                            }
+
+
                             return newRow;
                         },
                         (existing, incoming) -> {
@@ -154,25 +172,32 @@ public class ExcelService {
     // ─── Helpers ──────────────────────────────────────────────────────────────
     private String buildKey(Map<String, String> row) {
         return row.getOrDefault(COL_EMPRESA, "").trim() + " - " +
-               row.getOrDefault(COL_SERIE,   "").trim() + " - " +
-               row.getOrDefault(COL_NUMERO,  "").trim();
+                row.getOrDefault(COL_SERIE, "").trim() + " - " +
+                row.getOrDefault(COL_NUMERO, "").trim();
     }
 
     private String getCellValueAsString(Cell cell) {
         if (cell == null) return "";
         switch (cell.getCellType()) {
-            case STRING:  return cell.getStringCellValue();
+            case STRING:
+                return cell.getStringCellValue();
             case NUMERIC:
                 if (DateUtil.isCellDateFormatted(cell))
                     return cell.getLocalDateTimeCellValue().toString();
                 return new BigDecimal(cell.getNumericCellValue())
                         .stripTrailingZeros().toPlainString();
-            case BOOLEAN: return String.valueOf(cell.getBooleanCellValue());
+            case BOOLEAN:
+                return String.valueOf(cell.getBooleanCellValue());
             case FORMULA:
-                try { return new BigDecimal(cell.getNumericCellValue())
-                        .stripTrailingZeros().toPlainString(); }
-                catch (Exception e) { return cell.getStringCellValue(); }
-            default:      return "";
+
+                try {
+                    return String.valueOf(cell.getNumericCellValue());
+                } catch (Exception e) {
+                    return cell.getRichStringCellValue().getString();
+                }
+
+            default:
+                return "";
         }
     }
 
