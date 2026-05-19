@@ -1,37 +1,14 @@
-<project xmlns="http://maven.apache.org/POM/4.0.0" xmlns:xsi="http://www.w3.org/2001/XMLSchema-instance"
-  xsi:schemaLocation="http://maven.apache.org/POM/4.0.0 http://maven.apache.org/maven-v4_0_0.xsd">
+<?xml version="1.0" encoding="UTF-8"?>
+<project xmlns="http://maven.apache.org/POM/4.0.0" xmlns:xsi="http://www.w3.org/2001/XMLSchema-instance" xsi:schemaLocation="http://maven.apache.org/POM/4.0.0 http://maven.apache.org/maven-v4_0_0.xsd">
   <modelVersion>4.0.0</modelVersion>
   <groupId>com.desktop</groupId>
   <artifactId>desktop</artifactId>
-  <packaging>jar</packaging>
-  <version>1.0-SNAPSHOT</version>
   <name>desktop</name>
+  <version>1.0-SNAPSHOT</version>
   <url>http://maven.apache.org</url>
-  <properties>
-    <maven.compiler.source>21</maven.compiler.source>
-    <maven.compiler.target>21</maven.compiler.target>
-  </properties>
-
-  <dependencies>
-    <dependency>
-      <groupId>junit</groupId>
-      <artifactId>junit</artifactId>
-      <version>3.8.1</version>
-      <scope>test</scope>
-    </dependency>
-    <!-- FlatLaf for modern looking Swing UI -->
-    <dependency>
-      <groupId>com.formdev</groupId>
-      <artifactId>flatlaf</artifactId>
-      <version>3.4</version>
-    </dependency>
-  </dependencies>
-
   <build>
     <plugins>
-      <!-- Maven Shade Plugin for packaging a fat JAR -->
       <plugin>
-        <groupId>org.apache.maven.plugins</groupId>
         <artifactId>maven-shade-plugin</artifactId>
         <version>3.5.1</version>
         <executions>
@@ -42,7 +19,7 @@
             </goals>
             <configuration>
               <transformers>
-                <transformer implementation="org.apache.maven.plugins.shade.resource.ManifestResourceTransformer">
+                <transformer>
                   <mainClass>com.desktop.App</mainClass>
                 </transformer>
               </transformers>
@@ -60,8 +37,6 @@
           </execution>
         </executions>
       </plugin>
-
-      <!-- Exec Maven Plugin for running from command line -->
       <plugin>
         <groupId>org.codehaus.mojo</groupId>
         <artifactId>exec-maven-plugin</artifactId>
@@ -69,12 +44,31 @@
         <configuration>
           <executable>java</executable>
           <arguments>
+            <argument>--add-exports=java.desktop/sun.awt=ALL-UNNAMED</argument>
+            <argument>--add-exports=java.desktop/sun.lwawt=ALL-UNNAMED</argument>
+            <argument>--add-exports=java.desktop/sun.lwawt.macosx=ALL-UNNAMED</argument>
+            <argument>--add-opens=java.desktop/sun.awt=ALL-UNNAMED</argument>
+            <argument>--add-opens=java.desktop/sun.lwawt=ALL-UNNAMED</argument>
+            <argument>--add-opens=java.desktop/sun.lwawt.macosx=ALL-UNNAMED</argument>
+            <argument>--add-opens=java.desktop/java.awt=ALL-UNNAMED</argument>
             <argument>-classpath</argument>
-            <classpath/>
+            <classpath />
             <argument>com.desktop.App</argument>
           </arguments>
         </configuration>
       </plugin>
     </plugins>
   </build>
+  <dependencies>
+    <dependency>
+      <groupId>junit</groupId>
+      <artifactId>junit</artifactId>
+      <version>3.8.1</version>
+      <scope>test</scope>
+    </dependency>
+  </dependencies>
+  <properties>
+    <maven.compiler.target>21</maven.compiler.target>
+    <maven.compiler.source>21</maven.compiler.source>
+  </properties>
 </project>
