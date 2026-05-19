@@ -1,29 +1,73 @@
 package com.cmp.read_excel.service;
 
 
-import com.github.benmanes.caffeine.cache.Cache;
-import com.github.benmanes.caffeine.cache.Caffeine;
+import com.cmp.read_excel.entity.DataSendCacheEntity;
+import com.cmp.read_excel.entity.DataSendCacheRepository;
+import jakarta.annotation.PostConstruct;
 import org.springframework.stereotype.Component;
 
-import java.time.Duration;
+
+import java.time.LocalDateTime;
+import java.util.Optional;
 
 @Component
 public class DataSendCach {
 
-    private final Cache<String, String> cache = Caffeine.newBuilder()
-            .expireAfterWrite(Duration.ofDays(4)) // 🔥 4 días automático
-            .maximumSize(1_000_000)               // límite para evitar overflow
-            .build();
+    private final DataSendCacheRepository repository;
+
+    public DataSendCach(DataSendCacheRepository repository) {
+        this.repository = repository;
+    }
+
+    @PostConstruct
+    public void init() {
+
+        cleanOldRecords();
+    }
+
 
     public void put(String clave, String id) {
-        cache.put(normalize(clave), id);
+
+        String key = normalize(clave);
+
+        Optional<DataSendCacheEntity> existe =
+                repository.findById(key);
+
+        if (existe.isPresent()) {
+
+            DataSendCacheEntity entity = existe.get();
+
+            entity.setValor(id);
+
+            repository.save(entity);
+
+        } else {
+
+            repository.save(
+                    new DataSendCacheEntity(key, id)
+            );
+        }
     }
 
     public String get(String clave) {
-        return cache.getIfPresent(normalize(clave));
+
+        return repository
+                .findById(normalize(clave))
+                .map(DataSendCacheEntity::getValor)
+                .orElse(null);
     }
 
     private String normalize(String clave) {
-        return clave == null ? "" : clave.trim().toUpperCase();
+        return clave == null
+                ? ""
+                : clave.trim().toUpperCase();
+    }
+
+    private void cleanOldRecords() {
+
+        LocalDateTime limit =
+                LocalDateTime.now().minusDays(4);
+
+        repository.deleteByCreateAtBefore(limit);
     }
 }

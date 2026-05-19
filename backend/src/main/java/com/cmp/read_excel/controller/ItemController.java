@@ -1,5 +1,6 @@
 package com.cmp.read_excel.controller;
 
+import com.cmp.read_excel.entity.DataSendCacheRepository;
 import com.cmp.read_excel.model.AppConfigModel;
 import com.cmp.read_excel.model.ErrorResponseBr;
 import com.cmp.read_excel.service.ConfigService;
@@ -24,9 +25,10 @@ public class ItemController {
     private final ExcelService excelService;
 
     private final DataSendCach dataSendCach;
-    public ItemController() {
-        this.dataSendCach = new DataSendCach();
-        this.excelService = new ExcelService(this.dataSendCach);
+    public ItemController(ExcelService excelService, DataSendCach dataSendCach) {
+
+        this.dataSendCach = dataSendCach;
+        this.excelService = excelService;
 
     }
 
