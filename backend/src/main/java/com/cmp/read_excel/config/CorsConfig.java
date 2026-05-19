@@ -12,6 +12,7 @@ public class CorsConfig implements WebMvcConfigurer {
         registry.addMapping("/api/**")
                 .allowedOrigins(
                         "http://localhost:8019","http://localhost:8018",
+                        "http://10.2.2.142:8019","http://10.2.2.142:8018",
                         "https://odoo18.cmp-operaciones.com",
                         "https://odoo19.cmp-operaciones.com"
                         ) // Vite default ports
