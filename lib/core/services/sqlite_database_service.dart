@@ -10,7 +10,9 @@ class SqliteDatabaseService implements DatabaseService {
 
   Database get db {
     if (_db == null) {
-      throw StateError('La base de datos no ha sido inicializada. Llama a init() primero.');
+      throw StateError(
+        'La base de datos no ha sido inicializada. Llama a init() primero.',
+      );
     }
     return _db!;
   }
@@ -45,35 +47,35 @@ class SqliteDatabaseService implements DatabaseService {
       _db = await openDatabase(
         dbPath,
         version: 1,
-      onCreate: (Database db, int version) async {
-        print('Creando tablas SQLite...');
-        
-        // Tabla api_config
-        await db.execute('''
+        onCreate: (Database db, int version) async {
+          print('Creando tablas SQLite...');
+
+          // Tabla api_config
+          await db.execute('''
           CREATE TABLE api_config (
             name TEXT PRIMARY KEY,
             url TEXT
           )
         ''');
 
-        // Tabla path_config
-        await db.execute('''
+          // Tabla path_config
+          await db.execute('''
           CREATE TABLE path_config (
             path TEXT PRIMARY KEY,
             is_active INTEGER
           )
         ''');
 
-        // Tabla data_send_cache
-        await db.execute('''
+          // Tabla data_send_cache
+          await db.execute('''
           CREATE TABLE data_send_cache (
             clave TEXT PRIMARY KEY,
             valor TEXT,
             create_at DATETIME DEFAULT CURRENT_TIMESTAMP
           )
         ''');
-      },
-    );
+        },
+      );
     } catch (e) {
       throw FileSystemException(
         'No se pudo abrir o crear la base de datos SQLite en: $dbPath',
@@ -93,10 +95,14 @@ class SqliteDatabaseService implements DatabaseService {
     if (Platform.isMacOS) {
       final home = Platform.environment['HOME'];
       if (home != null && home.isNotEmpty) {
-        return Directory(p.join(home, 'Library', 'Application Support', 'odoo_async'));
+        return Directory(
+          p.join(home, 'Library', 'Application Support', 'odoo_async'),
+        );
       }
     } else if (Platform.isWindows) {
-      final appData = Platform.environment['APPDATA'] ?? Platform.environment['USERPROFILE'];
+      final appData =
+          Platform.environment['APPDATA'] ??
+          Platform.environment['USERPROFILE'];
       if (appData != null && appData.isNotEmpty) {
         return Directory(p.join(appData, 'odoo_async'));
       }
@@ -119,8 +125,14 @@ class SqliteDatabaseService implements DatabaseService {
       await db.rawQuery('SELECT COUNT(*) FROM api_config'),
     );
     if (apiCount == 0) {
-      await db.insert('api_config', {'name': 'url producion', 'url': 'https://api.miempresa.com'});
-      await db.insert('api_config', {'name': 'url test', 'url': 'https://api.miempresa.com'});
+      await db.insert('api_config', {
+        'name': 'url producion',
+        'url': 'https://api.miempresa.com',
+      });
+      await db.insert('api_config', {
+        'name': 'url test',
+        'url': 'https://api.miempresa.com',
+      });
       print('Configuraciones de API por defecto inicializadas.');
     }
 
@@ -137,14 +149,18 @@ class SqliteDatabaseService implements DatabaseService {
   @override
   Future<void> cleanOldCache() async {
     final now = DateTime.now();
-    print('Iniciando hook de limpieza de caché de trazabilidad... Hora local: $now');
-    
+    print(
+      'Iniciando hook de limpieza de caché de trazabilidad... Hora local: $now',
+    );
+
     // SQLite almacena en UTC para CURRENT_TIMESTAMP. Restamos 4 días de la fecha actual de SQLite
     final rowsDeleted = await db.delete(
       'data_send_cache',
-      where: "create_at < datetime('now', '-4 days')",
+      where: "create_at < datetime('now', '-6 days')",
     );
-    print('Limpieza de caché completada. Registros antiguos eliminados: $rowsDeleted');
+    print(
+      'Limpieza de caché completada. Registros antiguos eliminados: $rowsDeleted',
+    );
   }
 
   @override
@@ -157,48 +173,37 @@ class SqliteDatabaseService implements DatabaseService {
     final apiRows = await db.query('api_config');
     final pathRows = await db.query('path_config');
 
-    final apiList = apiRows.map((row) => {
-      'url': row['url'],
-      'name': row['name'],
-    }).toList();
+    final apiList = apiRows
+        .map((row) => {'url': row['url'], 'name': row['name']})
+        .toList();
 
-    final pathList = pathRows.map((row) => {
-      'path': row['path'],
-      'is_active': row['is_active'] == 1,
-    }).toList();
+    final pathList = pathRows
+        .map((row) => {'path': row['path'], 'is_active': row['is_active'] == 1})
+        .toList();
 
-    return {
-      'api': apiList,
-      'config_paths': pathList,
-    };
+    return {'api': apiList, 'config_paths': pathList};
   }
 
   @override
   Future<void> saveApiConfig(String name, String url) async {
-    await db.insert(
-      'api_config',
-      {
-        'name': name,
-        'url': url,
-      },
-      conflictAlgorithm: ConflictAlgorithm.replace,
-    );
+    await db.insert('api_config', {
+      'name': name,
+      'url': url,
+    }, conflictAlgorithm: ConflictAlgorithm.replace);
   }
 
   @override
   Future<void> savePathConfig(String path, bool isActive) async {
-    await db.insert(
-      'path_config',
-      {
-        'path': path,
-        'is_active': isActive ? 1 : 0,
-      },
-      conflictAlgorithm: ConflictAlgorithm.replace,
-    );
+    await db.insert('path_config', {
+      'path': path,
+      'is_active': isActive ? 1 : 0,
+    }, conflictAlgorithm: ConflictAlgorithm.replace);
   }
 
   @override
-  Future<Map<String, dynamic>> replaceConfig(Map<String, dynamic> newConfig) async {
+  Future<Map<String, dynamic>> replaceConfig(
+    Map<String, dynamic> newConfig,
+  ) async {
     await db.transaction((txn) async {
       // 1. Vaciar ambas tablas por completo
       await txn.delete('api_config');
@@ -217,7 +222,8 @@ class SqliteDatabaseService implements DatabaseService {
       }
 
       // 3. Insertar nuevos registros en path_config
-      if (newConfig['config_paths'] != null && newConfig['config_paths'] is List) {
+      if (newConfig['config_paths'] != null &&
+          newConfig['config_paths'] is List) {
         for (var item in newConfig['config_paths']) {
           if (item is Map) {
             await txn.insert('path_config', {
@@ -241,14 +247,10 @@ class SqliteDatabaseService implements DatabaseService {
         final docTraceabilityId = item['doc_traceability_id']?.toString();
         if (uniqueKey != null && docTraceabilityId != null) {
           final normalizedClave = normalizeKey(uniqueKey);
-          batch.insert(
-            'data_send_cache',
-            {
-              'clave': normalizedClave,
-              'valor': docTraceabilityId,
-            },
-            conflictAlgorithm: ConflictAlgorithm.replace,
-          );
+          batch.insert('data_send_cache', {
+            'clave': normalizedClave,
+            'valor': docTraceabilityId,
+          }, conflictAlgorithm: ConflictAlgorithm.replace);
         }
       }
     }
