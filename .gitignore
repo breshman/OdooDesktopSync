@@ -1,57 +1,45 @@
-# ========================
-# OS generated files
-# ========================
-.DS_Store
-.DS_Store?
-._*
-.Spotlight-V100
-.Trashes
-ehthumbs.db
-Thumbs.db
-
-# ========================
-# IDE / Editor
-# ========================
-.idea/
-*.iml
-*.iws
-.vscode/
-*.swp
-*.swo
-*~
-
-# ========================
-# Java / Maven
-# ========================
-target/
+# Miscellaneous
 *.class
-*.jar
-*.war
-*.ear
 *.log
-hs_err_pid*
+*.pyc
+*.swp
+.DS_Store
+.atom/
+.build/
+.buildlog/
+.history
+.svn/
+.swiftpm/
+migrate_working_dir/
 
-# ========================
-# Node / Frontend
-# ========================
-node_modules/
-dist/
-.env
-.env.*
-!.env.example
+# IntelliJ related
+*.iml
+*.ipr
+*.iws
+.idea/
 
-# ========================
-# JCEF / Desktop
-# ========================
-jcef-bundle/
+# The .vscode folder contains launch configuration and tasks you configure in
+# VS Code which you may wish to be included in version control, so this line
+# is commented out by default.
+#.vscode/
 
-# ========================
-# App Config (generated at runtime)
-# ========================
-config.json
-logs/
+# Flutter/Dart/Pub related
+**/doc/api/
+**/ios/Flutter/.last_build_id
+.dart_tool/
+.flutter-plugins-dependencies
+.pub-cache/
+.pub/
+/build/
+/coverage/
 
-# ========================
-# Maven Wrapper (optional - some prefer to commit it)
-# ========================
-# .mvn/wrapper/maven-wrapper.jar
+# Symbolication related
+app.*.symbols
+
+# Obfuscation related
+app.*.map.json
+
+# Android Studio will place build artifacts here
+/android/app/debug
+/android/app/profile
+/android/app/release
