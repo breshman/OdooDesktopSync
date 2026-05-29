@@ -199,8 +199,6 @@ class ApiServer {
         final consolidatedItems = await excelService.processAndGroupItems(
           allItems,
         );
-        print('consolidatedItems.length: ${consolidatedItems}');
-        print('consolidatedItems: $consolidatedItems');
         return Response.ok(
           jsonEncode(consolidatedItems),
           headers: {'content-type': 'application/json; charset=utf-8'},

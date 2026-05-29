@@ -34,7 +34,7 @@ enum ServerStatus { active, inactive }
 
 class ServerStatusNotifier extends Notifier<ServerStatus> {
   @override
-  ServerStatus build() => ServerStatus.active;
+  ServerStatus build() => ServerStatus.inactive;
 
   void setStatus(ServerStatus status) {
     state = status;
