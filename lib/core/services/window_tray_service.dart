@@ -11,27 +11,17 @@ class WindowTrayService {
     await windowManager.ensureInitialized();
 
     WindowOptions windowOptions = const WindowOptions(
-      size: Size(800, 500),
+      size: Size(800, 800),
       minimumSize: Size(700, 450),
       center: true,
-      backgroundColor: Colors.transparent,
-      skipTaskbar: true, // Habilitar arranque invisible
+      backgroundColor: Color(0xFF0B0F19),
       titleBarStyle: TitleBarStyle.normal,
       title: 'Odoo Desktop Sync',
     );
 
     await windowManager.waitUntilReadyToShow(windowOptions, () async {
-      if (kDebugMode) {
-        await windowManager.show();
-        await windowManager.focus();
-      } else {
-        await windowManager.hide();
-        await windowManager.setSkipTaskbar(true);
-      }
-
-      await windowManager.setPreventClose(
-        true,
-      ); // Evitar cierre directo con la 'X'
+      await windowManager.show();
+      await windowManager.focus();
     });
   }
 

@@ -6,23 +6,14 @@ import 'core/providers/dependency_providers.dart';
 import 'core/services/window_tray_service.dart';
 import 'ui/screens/dashboard_screen.dart';
 
-void main() async {
+void main() {
   WidgetsFlutterBinding.ensureInitialized();
 
   // Crear contenedor Riverpod para inyección y arranque seguro antes de runApp()
   final container = ProviderContainer();
 
-  // 1. Obtener instancias concretas a través del contenedor de proveedores
-  final dbService = container.read(databaseServiceProvider);
-  final windowTrayService = container.read(windowTrayServiceProvider);
-  final apiServer = container.read(apiServerProvider);
-
-  // 2. Inicializar base de datos SQLite y limpieza de caché
-  await dbService.init();
-
-  // 3. Iniciar servidor REST local
-  await apiServer.start();
-
+  // Ejecutar la aplicación inmediatamente. La inicialización de base de datos
+  // y del servidor HTTP se hará después, desde el propio widget.
   runApp(UncontrolledProviderScope(container: container, child: const MyApp()));
 }
 
@@ -33,38 +24,32 @@ class MyApp extends ConsumerStatefulWidget {
   ConsumerState<MyApp> createState() => _MyAppState();
 }
 
-class _MyAppState extends ConsumerState<MyApp>
-    with TrayListener, WindowListener {
+class _MyAppState extends ConsumerState<MyApp> with TrayListener {
   late WindowTrayService _windowTrayService;
+  bool _initializing = true;
+  String? _initializationError;
+  bool _initializationFailed = false;
 
   @override
   void initState() {
     super.initState();
     _windowTrayService = ref.read(windowTrayServiceProvider);
 
-    // Configurar System Tray y registrar a esta instancia como Listener de bandeja y ventana
+    // Configurar System Tray y registrar a esta instancia como Listener de bandeja
     _windowTrayService.initTray(this);
-    _windowTrayService.addWindowListener(this);
 
     // Inicializar ventana nativa después de que la UI esté lista,
     // para evitar interferencias con el lanzamiento en macOS.
     WidgetsBinding.instance.addPostFrameCallback((_) async {
       await _windowTrayService.initWindow();
+      await _initializeServices();
     });
   }
 
   @override
   void dispose() {
     _windowTrayService.removeTrayListener(this);
-    _windowTrayService.removeWindowListener(this);
     super.dispose();
-  }
-
-  // --- Implementación de WindowListener ---
-  @override
-  void onWindowClose() async {
-    // Intercepta botón 'X' de la ventana para ocultar de forma invisible al Tray
-    await _windowTrayService.hide();
   }
 
   // --- Implementación de TrayListener ---
@@ -106,7 +91,130 @@ class _MyAppState extends ConsumerState<MyApp>
         ),
         useMaterial3: true,
       ),
-      home: const DashboardScreen(),
+      home: _initializing
+          ? _LoadingScreen(errorMessage: _initializationError)
+          : (_initializationFailed
+              ? _ErrorScreen(errorMessage: _initializationError)
+              : const DashboardScreen()),
+    );
+  }
+
+  Future<void> _initializeServices() async {
+    final dbService = ref.read(databaseServiceProvider);
+    final apiServer = ref.read(apiServerProvider);
+
+    try {
+      await dbService.init();
+      await apiServer.start();
+      ref.read(serverStatusProvider.notifier).setStatus(ServerStatus.active);
+    } catch (e, stack) {
+      _initializationError = e.toString();
+      _initializationFailed = true;
+      print('Error inicializando servicios: $e');
+      print(stack);
+    } finally {
+      if (mounted) {
+        setState(() {
+          _initializing = false;
+        });
+      }
+    }
+  }
+}
+
+class _LoadingScreen extends StatelessWidget {
+  const _LoadingScreen({this.errorMessage, super.key});
+
+  final String? errorMessage;
+
+  @override
+  Widget build(BuildContext context) {
+    return Scaffold(
+      backgroundColor: const Color(0xFF0B0F19),
+      body: Center(
+        child: Padding(
+          padding: const EdgeInsets.symmetric(horizontal: 24.0),
+          child: Column(
+            mainAxisSize: MainAxisSize.min,
+            children: [
+              const CircularProgressIndicator(color: Color(0xFF6366F1)),
+              const SizedBox(height: 24),
+              const Text(
+                'Iniciando aplicación...',
+                textAlign: TextAlign.center,
+                style: TextStyle(
+                  color: Colors.white,
+                  fontSize: 18,
+                  fontWeight: FontWeight.bold,
+                ),
+              ),
+              const SizedBox(height: 8),
+              Text(
+                errorMessage ??
+                    'Por favor espera mientras se inicializan los servicios.',
+                textAlign: TextAlign.center,
+                style: const TextStyle(color: Color(0xFF94A3B8), fontSize: 14),
+              ),
+            ],
+          ),
+        ),
+      ),
+    );
+  }
+}
+
+class _ErrorScreen extends StatelessWidget {
+  const _ErrorScreen({required this.errorMessage, super.key});
+
+  final String? errorMessage;
+
+  @override
+  Widget build(BuildContext context) {
+    return Scaffold(
+      backgroundColor: const Color(0xFF0B0F19),
+      body: Center(
+        child: Padding(
+          padding: const EdgeInsets.symmetric(horizontal: 24.0),
+          child: Column(
+            mainAxisSize: MainAxisSize.min,
+            children: [
+              const Icon(
+                Icons.error_outline,
+                size: 72,
+                color: Colors.redAccent,
+              ),
+              const SizedBox(height: 24),
+              const Text(
+                'No se pudo inicializar la aplicación',
+                textAlign: TextAlign.center,
+                style: TextStyle(
+                  color: Colors.white,
+                  fontSize: 20,
+                  fontWeight: FontWeight.bold,
+                ),
+              ),
+              const SizedBox(height: 16),
+              Text(
+                errorMessage ?? 'Verifica permisos y vuelve a intentar.',
+                textAlign: TextAlign.center,
+                style: const TextStyle(
+                  color: Color(0xFF94A3B8),
+                  fontSize: 14,
+                ),
+              ),
+              const SizedBox(height: 24),
+              const Text(
+                'Reinicia la aplicación después de corregir el problema.',
+                textAlign: TextAlign.center,
+                style: TextStyle(
+                  color: Color(0xFF94A3B8),
+                  fontSize: 14,
+                ),
+              ),
+            ],
+          ),
+        ),
+      ),
     );
   }
 }
