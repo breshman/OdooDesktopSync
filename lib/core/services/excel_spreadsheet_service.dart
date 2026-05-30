@@ -1,21 +1,18 @@
 // ignore_for_file: avoid_print
-import 'dart:collection';
+import 'dart:convert';
 import 'dart:io';
+import 'dart:typed_data';
+import 'package:archive/archive.dart';
+import 'package:xml/xml.dart';
 import 'package:excel/excel.dart';
 import 'package:decimal/decimal.dart';
 import '../interfaces/database_service.dart';
 import '../interfaces/spreadsheet_service.dart';
+import '../utils/spreadsheet_helpers.dart';
 
-class ExcelSpreadsheetService implements SpreadsheetService {
+class ExcelSpreadsheetService with SpreadsheetHelperMixin implements SpreadsheetService {
+  @override
   final DatabaseService databaseService;
-
-  static const String _colEmpresa = "EMPRESA";
-  static const String _colSerie = "SERIE";
-  static const String _colNumero = "NUMERO";
-  static const String _colImporteMe = "IMPORTE ME";
-  static const String _colPesoTotal = "PESO TOTAL";
-  static const String _colClave = "unique_key";
-  static const String _trazabilidadId = "doc_traceability_id";
 
   ExcelSpreadsheetService(this.databaseService);
 
@@ -46,9 +43,10 @@ class ExcelSpreadsheetService implements SpreadsheetService {
   }
 
   @override
-  Future<List<Map<String, String>>> processAllExcelFiles(
-    List<String> listPaths,
-  ) async {
+  Future<List<Map<String, String>>> processAllFiles(
+    List<String> listPaths, {
+    String? separator,
+  }) async {
     final List<File> validFiles = [];
 
     for (var path in listPaths) {
@@ -85,12 +83,81 @@ class ExcelSpreadsheetService implements SpreadsheetService {
     return allFilesRows.expand((rows) => rows).toList();
   }
 
+  /// Pre-procesa los bytes del archivo Excel para resolver el error:
+  /// "Exception: custom numFmtId starts at 164 but found a value of X"
+  /// provocado por la librería 'excel' cuando encuentra formatos personalizados con IDs menores a 164.
+  Uint8List _fixExcelStyles(Uint8List bytes) {
+    try {
+      final archive = ZipDecoder().decodeBytes(bytes);
+      int? targetIndex;
+      for (int i = 0; i < archive.length; i++) {
+        if (archive[i].name == 'xl/styles.xml') {
+          targetIndex = i;
+          break;
+        }
+      }
+
+      if (targetIndex != null) {
+        final stylesFile = archive[targetIndex];
+        final xmlContent = utf8.decode(stylesFile.content as List<int>);
+        final document = XmlDocument.parse(xmlContent);
+        
+        final numFmtsElements = document.findAllElements('numFmts');
+        if (numFmtsElements.isNotEmpty) {
+          final numFmts = numFmtsElements.first;
+          final numFmtList = numFmts.findElements('numFmt').toList();
+          
+          int removedCount = 0;
+          for (final numFmt in numFmtList) {
+            final idAttr = numFmt.getAttribute('numFmtId');
+            if (idAttr != null) {
+              final id = int.tryParse(idAttr);
+              if (id != null && id < 164) {
+                numFmt.parent?.children.remove(numFmt);
+                removedCount++;
+              }
+            }
+          }
+          
+          if (removedCount > 0) {
+            final remainingNumFmts = numFmts.findElements('numFmt').toList();
+            if (remainingNumFmts.isEmpty) {
+              numFmts.parent?.children.remove(numFmts);
+            } else {
+              numFmts.setAttribute('count', remainingNumFmts.length.toString());
+            }
+            
+            final newXmlContent = document.toXmlString();
+            final newStylesBytes = utf8.encode(newXmlContent);
+            final newStylesFile = ArchiveFile(
+              'xl/styles.xml',
+              newStylesBytes.length,
+              newStylesBytes,
+            );
+            archive[targetIndex] = newStylesFile;
+            
+            // Re-codificar el zip con la modificación
+            final encoder = ZipEncoder();
+            final encodedBytes = encoder.encode(archive);
+            if (encodedBytes != null) {
+              return Uint8List.fromList(encodedBytes);
+            }
+          }
+        }
+      }
+    } catch (e) {
+      print('Advertencia: No se pudo pre-procesar los estilos del archivo Excel: $e');
+    }
+    return bytes;
+  }
+
   /// Lee un archivo Excel en streaming de manera asíncrona
   Future<List<Map<String, String>>> _readExcelFile(File file) async {
     final List<Map<String, String>> allRows = [];
 
     try {
-      final bytes = await file.readAsBytes();
+      final fileBytes = await file.readAsBytes();
+      final bytes = _fixExcelStyles(fileBytes);
       final excel = Excel.decodeBytes(bytes);
 
       if (excel.tables.isEmpty) return allRows;
@@ -138,6 +205,8 @@ class ExcelSpreadsheetService implements SpreadsheetService {
           allRows.add(rowMap);
         }
       }
+      // print(headers);
+      // [EMPRESA, TIPO DOC., SERIE, NUMERO, SITUACION, FECHA, CODIGO CLIENTE, NOMBRE CLIENTE, DIRECCION CLIENTE, TIP.INV, COD. ARTICULO, NOMBRE ARTICULO, UND, CANTIDAD, PESO, PESO TOTAL, DESCUENTO, DSCTO 1, DSCTO 2, DSCTO 3, DSCTO 4, TIPCAM, P.U. MN, SUBTOTAL MN, IGV MN, IMPORTE MN, P.U. ME, SUBTOTAL ME, IGV ME, IMPORTE ME, COD. F.PAGO, FORMA DE PAGO, MONEDA, COD. VEN CARTERA, VENDEDOR CARTERA, COD. VEN, VENDEDOR, COD. FAM, FAMILIA, COD. SUBFAM, SUBFAMILIA, COD. MARCA, MARCA, DOC. REF, DEPARTAMENTO, PROVINCIA, DISTRITO, ZONA 1, COD. SUBFAM2, SUBFAMILIA2, DIRECCION ENVIO, DEPARTAMENTO ENVIO, PROVINCIA ENVIO, DISTRITO ENVIO, TRANSPORTISTA, DIRECCION TRANSPORTISTA, GUIA REMISION, OBSERVACION, GUIA_FECHA, GUIA_FECHA_PROGAMADO, RUC TRANSPORTISTA]
     } catch (e) {
       final errorMsg =
           "Error al leer el archivo ${file.uri.pathSegments.last} => $e";
@@ -148,60 +217,15 @@ class ExcelSpreadsheetService implements SpreadsheetService {
     return allRows;
   }
 
+
+
   bool _isHeaderRow(List<String> rowValues) {
     final normalized = rowValues.map((value) => value.toUpperCase()).toList();
-    return normalized.contains(_colEmpresa.toUpperCase()) &&
-        normalized.contains(_colNumero.toUpperCase());
-  }
-
-  @override
-  Future<List<Map<String, String>>> processAndGroupItems(
-    List<Map<String, String>> allItems,
-  ) async {
-    final Map<String, Map<String, String>> grouped = {};
-
-    for (final row in allItems) {
-      final key = _buildKey(row);
-
-      if (grouped.containsKey(key)) {
-        final existing = grouped[key]!;
-
-        existing[_colImporteMe] =
-            (_parseDecimal(existing[_colImporteMe]) +
-                    _parseDecimal(row[_colImporteMe]))
-                .toString();
-
-        existing[_colPesoTotal] =
-            (_parseDecimal(existing[_colPesoTotal]) +
-                    _parseDecimal(row[_colPesoTotal]))
-                .toString();
-      } else {
-        final newRow = LinkedHashMap<String, String>.from(row);
-        newRow[_colClave] = key;
-        newRow[_colImporteMe] = row[_colImporteMe] ?? '0';
-        newRow[_colPesoTotal] = row[_colPesoTotal] ?? '0';
-
-        // Inyectar doc_traceability_id si existe en el caché
-        final trazabilidadId = await databaseService.getTraceabilityId(key);
-        if (trazabilidadId != null && trazabilidadId.isNotEmpty) {
-          newRow[_trazabilidadId] = trazabilidadId;
-        }
-
-        grouped[key] = newRow;
-      }
-    }
-
-    return grouped.values.toList();
+    return normalized.contains(colEmpresa.toUpperCase()) &&
+        normalized.contains(colNumero.toUpperCase());
   }
 
   // ─── Helpers ──────────────────────────────────────────────────────────────
-  String _buildKey(Map<String, String> row) {
-    final empresa = (row[_colEmpresa] ?? "").trim();
-    final serie = (row[_colSerie] ?? "").trim();
-    final numero = (row[_colNumero] ?? "").trim();
-    return "$empresa - $serie - $numero";
-  }
-
   String _getCellValueAsString(CellValue? cellValue) {
     if (cellValue == null) return '';
 
@@ -233,16 +257,6 @@ class ExcelSpreadsheetService implements SpreadsheetService {
       return str.substring(0, str.length - 2);
     }
     return str;
-  }
-
-  Decimal _parseDecimal(String? value) {
-    try {
-      if (value == null || value.trim().isEmpty) return Decimal.zero;
-      return Decimal.parse(value.trim());
-    } catch (_) {
-      print("Valor numérico inválido: '$value'");
-      return Decimal.zero;
-    }
   }
 }
 

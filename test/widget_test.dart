@@ -34,9 +34,10 @@ class MockSpreadsheetService implements SpreadsheetService {
   @override
   void validatePaths(List<String> paths) {}
   @override
-  Future<List<Map<String, String>>> processAllExcelFiles(
-    List<String> listPaths,
-  ) async => [];
+  Future<List<Map<String, String>>> processAllFiles(
+    List<String> listPaths, {
+    String? separator,
+  }) async => [];
   @override
   Future<List<Map<String, String>>> processAndGroupItems(
     List<Map<String, String>> allItems,
@@ -52,6 +53,9 @@ void main() {
         overrides: [
           databaseServiceProvider.overrideWithValue(MockDatabaseService()),
           spreadsheetServiceProvider.overrideWithValue(
+            MockSpreadsheetService(),
+          ),
+          flatFileServiceProvider.overrideWithValue(
             MockSpreadsheetService(),
           ),
         ],
@@ -71,7 +75,7 @@ void main() {
     ];
 
     spreadsheetService.validatePaths(paths);
-    final rows = await spreadsheetService.processAllExcelFiles(paths);
+    final rows = await spreadsheetService.processAllFiles(paths);
 
     expect(rows, isNotEmpty);
     expect(rows.first, containsPair('EMPRESA', isNotNull));
