@@ -4,6 +4,7 @@ import 'package:flutter_riverpod/flutter_riverpod.dart';
 import '../../core/providers/dependency_providers.dart';
 import '../widgets/status_badge.dart';
 import '../widgets/info_card.dart';
+import '../widgets/logs_dialog.dart';
 
 class DashboardScreen extends ConsumerWidget {
   const DashboardScreen({super.key});
@@ -173,9 +174,29 @@ class DashboardScreen extends ConsumerWidget {
                 const SizedBox(height: 24),
 
                 // Fila de botones de acción
-                Row(
-                  mainAxisAlignment: MainAxisAlignment.end,
+                Wrap(
+                  spacing: 16,
+                  runSpacing: 16,
+                  alignment: WrapAlignment.end,
+                  crossAxisAlignment: WrapCrossAlignment.center,
                   children: [
+                    ElevatedButton.icon(
+                      onPressed: () => showLogsDialog(context),
+                      icon: const Icon(Icons.terminal_rounded),
+                      label: const Text('Ver Logs'),
+                      style: ElevatedButton.styleFrom(
+                        backgroundColor: const Color(0xFF6366F1),
+                        foregroundColor: Colors.white,
+                        elevation: 0,
+                        padding: const EdgeInsets.symmetric(
+                          horizontal: 20,
+                          vertical: 16,
+                        ),
+                        shape: RoundedRectangleBorder(
+                          borderRadius: BorderRadius.circular(12),
+                        ),
+                      ),
+                    ),
                     ElevatedButton.icon(
                       onPressed: () async {
                         await windowTrayService.hide();
@@ -198,7 +219,6 @@ class DashboardScreen extends ConsumerWidget {
                         ),
                       ),
                     ),
-                    const SizedBox(width: 16),
                     ElevatedButton.icon(
                       onPressed: () async {
                         ref

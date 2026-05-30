@@ -1,9 +1,16 @@
+import 'dart:io';
 import 'package:flutter_test/flutter_test.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
+import 'package:path/path.dart' as p;
+import 'package:tray_manager/tray_manager.dart';
+import 'package:window_manager/window_manager.dart';
 import 'package:odoo_async/core/interfaces/database_service.dart';
 import 'package:odoo_async/core/interfaces/spreadsheet_service.dart';
 import 'package:odoo_async/core/providers/dependency_providers.dart';
 import 'package:odoo_async/core/services/excel_spreadsheet_service.dart';
+import 'package:odoo_async/core/services/window_tray_service.dart';
+import 'package:odoo_async/core/services/logging_service.dart';
+import 'package:odoo_async/api_server.dart';
 import 'package:odoo_async/main.dart';
 
 // Mocks livianos para evitar el acceso a archivos de sistema y FFI en ambiente de pruebas
@@ -44,6 +51,49 @@ class MockSpreadsheetService implements SpreadsheetService {
   ) async => [];
 }
 
+class MockApiServer implements ApiServer {
+  @override
+  final DatabaseService dbService = MockDatabaseService();
+  @override
+  final SpreadsheetService excelService = MockSpreadsheetService();
+  @override
+  final SpreadsheetService flatFileService = MockSpreadsheetService();
+  @override
+  final LoggingService loggingService = LoggingService();
+
+  @override
+  Future<void> start() async {}
+
+  @override
+  Future<void> stop() async {}
+}
+
+class MockWindowTrayService implements WindowTrayService {
+  @override
+  Future<void> initWindow() async {}
+
+  @override
+  Future<void> initTray(TrayListener listener) async {}
+
+  @override
+  void addWindowListener(WindowListener listener) {}
+
+  @override
+  void removeWindowListener(WindowListener listener) {}
+
+  @override
+  void removeTrayListener(TrayListener listener) {}
+
+  @override
+  Future<void> showAndFocus() async {}
+
+  @override
+  Future<void> hide() async {}
+
+  @override
+  Future<void> closeApp() async {}
+}
+
 void main() {
   testWidgets('Dashboard smoke test', (WidgetTester tester) async {
     // Montar el widget de la aplicación dentro de un ProviderScope
@@ -58,10 +108,17 @@ void main() {
           flatFileServiceProvider.overrideWithValue(
             MockSpreadsheetService(),
           ),
+          apiServerProvider.overrideWithValue(MockApiServer()),
+          windowTrayServiceProvider.overrideWithValue(MockWindowTrayService()),
         ],
         child: const MyApp(),
       ),
     );
+
+    // Permitir la inicialización asíncrona en addPostFrameCallback
+    await tester.pump();
+    await tester.pump(const Duration(milliseconds: 200));
+    await tester.pump();
 
     // Confirmar que el título principal de cabecera existe en pantalla
     expect(find.text('Odoo Desktop Sync'), findsOneWidget);
@@ -70,8 +127,8 @@ void main() {
   test('Procesar archivos de demo de Excel', () async {
     final spreadsheetService = ExcelSpreadsheetService(MockDatabaseService());
     final paths = [
-      '/Users/macbook/Documents/Proyectos/Flutter/odoo_async/data_demo/148_FIA-FT.xlsx',
-      '/Users/macbook/Documents/Proyectos/Flutter/odoo_async/data_demo/157_INF-FT.xlsx',
+      p.join(Directory.current.path, 'data_demo', '148_FIA-FT.xlsx'),
+      p.join(Directory.current.path, 'data_demo', '157_INF-FT.xlsx'),
     ];
 
     spreadsheetService.validatePaths(paths);

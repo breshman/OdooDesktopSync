@@ -1,10 +1,11 @@
 import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:tray_manager/tray_manager.dart';
-import 'package:window_manager/window_manager.dart';
 import 'core/providers/dependency_providers.dart';
+import 'core/services/logging_service.dart';
 import 'core/services/window_tray_service.dart';
 import 'ui/screens/dashboard_screen.dart';
+import 'ui/widgets/logs_dialog.dart';
 
 void main() {
   WidgetsFlutterBinding.ensureInitialized();
@@ -29,11 +30,13 @@ class _MyAppState extends ConsumerState<MyApp> with TrayListener {
   bool _initializing = true;
   String? _initializationError;
   bool _initializationFailed = false;
+  late LoggingService _loggingService;
 
   @override
   void initState() {
     super.initState();
     _windowTrayService = ref.read(windowTrayServiceProvider);
+    _loggingService = ref.read(loggingServiceProvider);
 
     // Configurar System Tray y registrar a esta instancia como Listener de bandeja
     _windowTrayService.initTray(this);
@@ -110,8 +113,9 @@ class _MyAppState extends ConsumerState<MyApp> with TrayListener {
     } catch (e, stack) {
       _initializationError = e.toString();
       _initializationFailed = true;
-      print('Error inicializando servicios: $e');
-      print(stack);
+      _loggingService.error('Error inicializando servicios: $e');
+      _loggingService.error('Stack trace: $stack');
+
     } finally {
       if (mounted) {
         setState(() {
@@ -209,6 +213,21 @@ class _ErrorScreen extends StatelessWidget {
                 style: TextStyle(
                   color: Color(0xFF94A3B8),
                   fontSize: 14,
+                ),
+              ),
+              const SizedBox(height: 24),
+              ElevatedButton.icon(
+                onPressed: () => showLogsDialog(context),
+                icon: const Icon(Icons.terminal_rounded),
+                label: const Text('Ver Logs de Error'),
+                style: ElevatedButton.styleFrom(
+                  backgroundColor: const Color(0xFF1E293B),
+                  foregroundColor: Colors.white,
+                  padding: const EdgeInsets.symmetric(horizontal: 20, vertical: 12),
+                  shape: RoundedRectangleBorder(
+                    borderRadius: BorderRadius.circular(10),
+                    side: BorderSide(color: Colors.white.withOpacity(0.1)),
+                  ),
                 ),
               ),
             ],
