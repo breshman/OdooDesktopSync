@@ -1,6 +1,8 @@
+import 'dart:convert';
 import 'dart:io';
 import 'package:flutter_test/flutter_test.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
+import 'package:odoo_async/core/services/flat_file_spreadsheet_service.dart';
 import 'package:path/path.dart' as p;
 import 'package:tray_manager/tray_manager.dart';
 import 'package:window_manager/window_manager.dart';
@@ -94,6 +96,24 @@ class MockWindowTrayService implements WindowTrayService {
   Future<void> closeApp() async {}
 }
 
+Future<void> saveRowsToJsonFile(
+  List<Map<String, String>> rows,
+  String fileName,
+) async {
+  final outputDir = Directory(
+    p.join(Directory.current.path, 'data_demo', 'test_output'),
+  );
+  if (!outputDir.existsSync()) {
+    outputDir.createSync(recursive: true);
+  }
+
+  final outputFile = File(p.join(outputDir.path, fileName));
+  await outputFile.writeAsString(
+    const JsonEncoder.withIndent('  ').convert(rows),
+    flush: true,
+  );
+}
+
 void main() {
   testWidgets('Dashboard smoke test', (WidgetTester tester) async {
     // Montar el widget de la aplicación dentro de un ProviderScope
@@ -105,9 +125,7 @@ void main() {
           spreadsheetServiceProvider.overrideWithValue(
             MockSpreadsheetService(),
           ),
-          flatFileServiceProvider.overrideWithValue(
-            MockSpreadsheetService(),
-          ),
+          flatFileServiceProvider.overrideWithValue(MockSpreadsheetService()),
           apiServerProvider.overrideWithValue(MockApiServer()),
           windowTrayServiceProvider.overrideWithValue(MockWindowTrayService()),
         ],
@@ -133,6 +151,29 @@ void main() {
 
     spreadsheetService.validatePaths(paths);
     final rows = await spreadsheetService.processAllFiles(paths);
+
+    await saveRowsToJsonFile(rows, 'excel_demo_rows.json');
+
+    expect(rows, isNotEmpty);
+    expect(rows.first, containsPair('EMPRESA', isNotNull));
+  });
+  test('Procesar archivos de demo de csv o txt', () async {
+    final spreadsheetService = FlatFileSpreadsheetService(
+      MockDatabaseService(),
+    );
+    final paths = [
+      p.join(Directory.current.path, 'data_demo', '148_FIA-FT.txt'),
+    ];
+
+    spreadsheetService.validatePaths(paths);
+    final rows = await spreadsheetService.processAllFiles(
+      paths,
+      separator: '|',
+    );
+    final rowsGrupo = await spreadsheetService.processAndGroupItems(rows);
+
+    await saveRowsToJsonFile(rows, 'flatfile_demo_rows.json');
+    await saveRowsToJsonFile(rowsGrupo, 'flatfile_demo_rows_grouped.json');
 
     expect(rows, isNotEmpty);
     expect(rows.first, containsPair('EMPRESA', isNotNull));

@@ -5,23 +5,74 @@ import '../interfaces/database_service.dart';
 import '../interfaces/spreadsheet_service.dart';
 import '../utils/spreadsheet_helpers.dart';
 
-class FlatFileSpreadsheetService with SpreadsheetHelperMixin implements SpreadsheetService {
+class FlatFileSpreadsheetService
+    with SpreadsheetHelperMixin
+    implements SpreadsheetService {
   @override
   final DatabaseService databaseService;
 
   static const List<String> _textHeaders = [
-    'EMPRESA', 'TIPO DOC.', 'SERIE', 'NUMERO', 'SITUACION', 'FECHA',
-    'CODIGO CLIENTE', 'NOMBRE CLIENTE', 'DIRECCION CLIENTE', 'TIP.INV',
-    'COD. ARTICULO', 'NOMBRE ARTICULO', 'UND', 'CANTIDAD', 'PESO', 'PESO TOTAL',
-    'DESCUENTO', 'DSCTO 1', 'DSCTO 2', 'DSCTO 3', 'DSCTO 4', 'TIPCAM',
-    'P.U. MN', 'SUBTOTAL MN', 'IGV MN', 'IMPORTE MN', 'P.U. ME', 'SUBTOTAL ME',
-    'IGV ME', 'IMPORTE ME', 'COD. F.PAGO', 'FORMA DE PAGO', 'MONEDA',
-    'COD. VEN CARTERA', 'VENDEDOR CARTERA', 'COD. VEN', 'VENDEDOR', 'COD. FAM',
-    'FAMILIA', 'COD. SUBFAM', 'SUBFAMILIA', 'COD. MARCA', 'MARCA', 'DOC. REF',
-    'DEPARTAMENTO', 'PROVINCIA', 'DISTRITO', 'ZONA 1', 'COD. SUBFAM2',
-    'SUBFAMILIA2', 'DIRECCION ENVIO', 'DEPARTAMENTO ENVIO', 'PROVINCIA ENVIO',
-    'DISTRITO ENVIO', 'TRANSPORTISTA', 'DIRECCION TRANSPORTISTA', 'GUIA REMISION',
-    'OBSERVACION', 'GUIA_FECHA', 'GUIA_FECHA_PROGAMADO', 'RUC TRANSPORTISTA'
+    'EMPRESA',
+    'TIPO DOC.',
+    'SERIE',
+    'NUMERO',
+    'SITUACION',
+    'FECHA',
+    'CODIGO CLIENTE',
+    'NOMBRE CLIENTE',
+    'DIRECCION CLIENTE',
+    'TIP.INV',
+    'COD. ARTICULO',
+    'NOMBRE ARTICULO',
+    'UND',
+    'CANTIDAD',
+    'PESO',
+    'PESO TOTAL',
+    'DESCUENTO',
+    'DSCTO 1',
+    'DSCTO 2',
+    'DSCTO 3',
+    'DSCTO 4',
+    'TIPCAM',
+    'P.U. MN',
+    'SUBTOTAL MN',
+    'IGV MN',
+    'IMPORTE MN',
+    'P.U. ME',
+    'SUBTOTAL ME',
+    'IGV ME',
+    'IMPORTE ME',
+    'COD. F.PAGO',
+    'FORMA DE PAGO',
+    'MONEDA',
+    'COD. VEN CARTERA',
+    'VENDEDOR CARTERA',
+    'COD. VEN',
+    'VENDEDOR',
+    'COD. FAM',
+    'FAMILIA',
+    'COD. SUBFAM',
+    'SUBFAMILIA',
+    'COD. MARCA',
+    'MARCA',
+    'DOC. REF',
+    'DEPARTAMENTO',
+    'PROVINCIA',
+    'DISTRITO',
+    'ZONA 1',
+    'COD. SUBFAM2',
+    'SUBFAMILIA2',
+    'DIRECCION ENVIO',
+    'DEPARTAMENTO ENVIO',
+    'PROVINCIA ENVIO',
+    'DISTRITO ENVIO',
+    'TRANSPORTISTA',
+    'DIRECCION TRANSPORTISTA',
+    'GUIA REMISION',
+    'OBSERVACION',
+    'GUIA_FECHA',
+    'GUIA_FECHA_PROGAMADO',
+    'RUC TRANSPORTISTA',
   ];
 
   FlatFileSpreadsheetService(this.databaseService);
@@ -95,18 +146,58 @@ class FlatFileSpreadsheetService with SpreadsheetHelperMixin implements Spreadsh
   }
 
   /// Lee un archivo de texto o CSV de manera asíncrona y le asigna la cabecera correspondiente
-  Future<List<Map<String, String>>> _readTextOrCsvFile(File file, {String? separator}) async {
-    final List<Map<String, String>> allRows = [];
+  Future<List<Map<String, String>>> _readTextOrCsvFile(
+    File file, {
+    String? separator,
+  }) async {
+    final activeSeparator = separator ?? '|';
+
     try {
       final lines = await file.readAsLines(encoding: utf8);
-      if (lines.isEmpty) return allRows;
+      if (lines.isEmpty) return [];
+      return _processLinesWithBuffer(lines, activeSeparator);
+    } catch (e) {
+      // Intentar leer con encoding latin1 si utf8 falla
+      try {
+        final lines = await file.readAsLines(encoding: latin1);
+        if (lines.isEmpty) return [];
+        return _processLinesWithBuffer(lines, activeSeparator);
+      } catch (e2) {
+        final errorMsg =
+            "Error al leer el archivo de texto/csv ${file.uri.pathSegments.last} => $e2";
+        print(errorMsg);
+        throw Exception(errorMsg);
+      }
+    }
+  }
 
-      final activeSeparator = separator ?? ',';
+  /// Procesa la lista de líneas reconstruyendo aquellas que tengan saltos de línea erróneos
+  List<Map<String, String>> _processLinesWithBuffer(
+    List<String> lines,
+    String activeSeparator,
+  ) {
+    final List<Map<String, String>> allRows = [];
+    String buffer = '';
 
-      for (final line in lines) {
-        if (line.trim().isEmpty) continue;
+    // Si tenemos 61 columnas en _textHeaders, una fila completa debe tener 60 separadores.
+    final int separadoresEsperados = _textHeaders.length - 1;
 
-        final fields = _splitCsvLine(line, activeSeparator);
+    for (final line in lines) {
+      // Ignorar líneas vacías a menos que estemos a mitad de reconstruir una línea rota
+      if (line.trim().isEmpty && buffer.isEmpty) continue;
+
+      if (buffer.isEmpty) {
+        buffer = line;
+      } else {
+        // Unimos el texto cortado con un espacio para no perder el formato natural
+        buffer += ' ${line.trim()}';
+      }
+
+      final int cantidadSeparadores = buffer.split(activeSeparator).length - 1;
+
+      // Si alcanzamos o superamos los separadores de una fila válida, procesamos el buffer
+      if (cantidadSeparadores >= separadoresEsperados) {
+        final fields = _splitCsvLine(buffer, activeSeparator);
         final Map<String, String> rowMap = {};
 
         for (int i = 0; i < _textHeaders.length; i++) {
@@ -115,44 +206,29 @@ class FlatFileSpreadsheetService with SpreadsheetHelperMixin implements Spreadsh
           rowMap[headerName] = value;
         }
 
-        // Solo agregar la fila si tiene datos
         final hasData = rowMap.values.any((val) => val.isNotEmpty);
         if (hasData) {
           allRows.add(rowMap);
         }
-      }
-    } catch (e) {
-      // Intentar leer con encoding latin1 si utf8 falla
-      try {
-        final lines = await file.readAsLines(encoding: latin1);
-        if (lines.isEmpty) return allRows;
 
-        final activeSeparator = separator ?? ',';
-
-        for (final line in lines) {
-          if (line.trim().isEmpty) continue;
-
-          final fields = _splitCsvLine(line, activeSeparator);
-          final Map<String, String> rowMap = {};
-
-          for (int i = 0; i < _textHeaders.length; i++) {
-            final headerName = _textHeaders[i];
-            final value = i < fields.length ? fields[i] : '';
-            rowMap[headerName] = value;
-          }
-
-          final hasData = rowMap.values.any((val) => val.isNotEmpty);
-          if (hasData) {
-            allRows.add(rowMap);
-          }
-        }
-      } catch (e2) {
-        final errorMsg =
-            "Error al leer el archivo de texto/csv ${file.uri.pathSegments.last} => $e2";
-        print(errorMsg);
-        throw Exception(errorMsg);
+        // Limpiamos el buffer para la siguiente fila
+        buffer = '';
       }
     }
+
+    // Por seguridad, si el archivo termina repentinamente y queda algo en el buffer,
+    // intentamos procesarlo como la última fila.
+    if (buffer.isNotEmpty) {
+      final fields = _splitCsvLine(buffer, activeSeparator);
+      final Map<String, String> rowMap = {};
+      for (int i = 0; i < _textHeaders.length; i++) {
+        rowMap[_textHeaders[i]] = i < fields.length ? fields[i] : '';
+      }
+      if (rowMap.values.any((val) => val.isNotEmpty)) {
+        allRows.add(rowMap);
+      }
+    }
+
     return allRows;
   }
 
@@ -168,8 +244,6 @@ class FlatFileSpreadsheetService with SpreadsheetHelperMixin implements Spreadsh
       return trimmed.trim();
     }).toList();
   }
-
-
 }
 
 class FlatFileRuntimeException implements Exception {
