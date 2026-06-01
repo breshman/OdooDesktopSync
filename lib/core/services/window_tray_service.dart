@@ -36,6 +36,7 @@ class WindowTrayService {
 
     try {
       await trayManager.setIcon(iconPath);
+      await trayManager.setToolTip('Odoo Desktop Sync');
     } catch (e) {
       _loggingService.error('Error al cargar el icono del System Tray: $e');
       
@@ -68,6 +69,7 @@ class WindowTrayService {
   /// Muestra y enfoca la ventana principal
   Future<void> showAndFocus() async {
     await windowManager.show();
+    await windowManager.restore();
     await windowManager.focus();
   }
 

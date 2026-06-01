@@ -1,6 +1,7 @@
 import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:tray_manager/tray_manager.dart';
+import 'package:window_manager/window_manager.dart';
 import 'core/providers/dependency_providers.dart';
 import 'core/services/logging_service.dart';
 import 'core/services/window_tray_service.dart';
@@ -25,7 +26,7 @@ class MyApp extends ConsumerStatefulWidget {
   ConsumerState<MyApp> createState() => _MyAppState();
 }
 
-class _MyAppState extends ConsumerState<MyApp> with TrayListener {
+class _MyAppState extends ConsumerState<MyApp> with TrayListener, WindowListener {
   late WindowTrayService _windowTrayService;
   bool _initializing = true;
   String? _initializationError;
@@ -38,8 +39,9 @@ class _MyAppState extends ConsumerState<MyApp> with TrayListener {
     _windowTrayService = ref.read(windowTrayServiceProvider);
     _loggingService = ref.read(loggingServiceProvider);
 
-    // Configurar System Tray y registrar a esta instancia como Listener de bandeja
+    // Configurar System Tray y registrar a esta instancia como Listener de bandeja y ventana
     _windowTrayService.initTray(this);
+    _windowTrayService.addWindowListener(this);
 
     // Inicializar ventana nativa después de que la UI esté lista,
     // para evitar interferencias con el lanzamiento en macOS.
@@ -52,6 +54,7 @@ class _MyAppState extends ConsumerState<MyApp> with TrayListener {
   @override
   void dispose() {
     _windowTrayService.removeTrayListener(this);
+    _windowTrayService.removeWindowListener(this);
     super.dispose();
   }
 
@@ -76,6 +79,13 @@ class _MyAppState extends ConsumerState<MyApp> with TrayListener {
       await apiServer.stop();
       await _windowTrayService.closeApp();
     }
+  }
+
+  // --- Implementación de WindowListener ---
+  @override
+  void onWindowMinimize() async {
+    // Al minimizar la ventana, la ocultamos por completo para que no aparezca en la barra de tareas
+    await _windowTrayService.hide();
   }
 
   @override
