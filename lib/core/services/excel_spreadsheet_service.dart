@@ -9,10 +9,13 @@ import 'package:decimal/decimal.dart';
 import '../interfaces/database_service.dart';
 import '../interfaces/spreadsheet_service.dart';
 import '../utils/spreadsheet_helpers.dart';
+import 'logging_service.dart';
 
 class ExcelSpreadsheetService with SpreadsheetHelperMixin implements SpreadsheetService {
   @override
   final DatabaseService databaseService;
+
+  final LoggingService _loggingService = LoggingService();
 
   ExcelSpreadsheetService(this.databaseService);
 
@@ -21,6 +24,7 @@ class ExcelSpreadsheetService with SpreadsheetHelperMixin implements Spreadsheet
     for (var path in paths) {
       final file = File(path);
       if (!file.existsSync()) {
+        _loggingService.error('El archivo no existe en la ruta especificada: $path');
         throw ArgumentError(
           'El archivo no existe en la ruta especificada: $path',
         );
@@ -29,12 +33,14 @@ class ExcelSpreadsheetService with SpreadsheetHelperMixin implements Spreadsheet
       final fileName = file.uri.pathSegments.last;
 
       if (!path.toLowerCase().endsWith('.xlsx')) {
+        _loggingService.error('El archivo "$fileName" no es un archivo Excel válido. Debe tener extensión .xlsx.');
         throw ArgumentError(
           'El archivo "$fileName" no es un archivo Excel válido. Debe tener extensión .xlsx.',
         );
       }
 
       if (fileName.startsWith('~')) {
+        _loggingService.error('El archivo "$fileName" es un archivo temporal de Excel y no puede ser procesado.');
         throw ArgumentError(
           'El archivo "$fileName" es un archivo temporal de Excel y no puede ser procesado.',
         );
@@ -60,13 +66,13 @@ class ExcelSpreadsheetService with SpreadsheetHelperMixin implements Spreadsheet
 
       if (!valid) {
         final error = "Archivo inválido o no encontrado: $path";
-        print('Aviso: $error');
+        _loggingService.error(error);
         throw ArgumentError(error);
       }
       validFiles.add(file);
     }
 
-    print('Procesando ${validFiles.length} archivos Excel en paralelo...');
+    _loggingService.info('Procesando ${validFiles.length} archivos Excel en paralelo...');
 
     // Procesar archivos en paralelo usando Future.wait
     final List<List<Map<String, String>>> allFilesRows = await Future.wait(
@@ -146,7 +152,7 @@ class ExcelSpreadsheetService with SpreadsheetHelperMixin implements Spreadsheet
         }
       }
     } catch (e) {
-      print('Advertencia: No se pudo pre-procesar los estilos del archivo Excel: $e');
+      _loggingService.error('Advertencia: No se pudo pre-procesar los estilos del archivo Excel: $e');
     }
     return bytes;
   }
@@ -182,6 +188,7 @@ class ExcelSpreadsheetService with SpreadsheetHelperMixin implements Spreadsheet
       }
 
       if (headers.isEmpty) {
+        _loggingService.error('No se encontró la fila de cabeceras en el archivo ${file.uri.pathSegments.last}.');
         throw Exception(
           'No se encontró la fila de cabeceras en el archivo ${file.uri.pathSegments.last}.',
         );
@@ -210,7 +217,7 @@ class ExcelSpreadsheetService with SpreadsheetHelperMixin implements Spreadsheet
     } catch (e) {
       final errorMsg =
           "Error al leer el archivo ${file.uri.pathSegments.last} => $e";
-      print(errorMsg);
+      _loggingService.error(errorMsg);
       throw Exception(errorMsg);
     }
 

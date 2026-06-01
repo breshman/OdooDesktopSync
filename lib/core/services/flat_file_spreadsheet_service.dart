@@ -4,12 +4,15 @@ import 'dart:io';
 import '../interfaces/database_service.dart';
 import '../interfaces/spreadsheet_service.dart';
 import '../utils/spreadsheet_helpers.dart';
+import 'logging_service.dart';
 
 class FlatFileSpreadsheetService
     with SpreadsheetHelperMixin
     implements SpreadsheetService {
   @override
   final DatabaseService databaseService;
+
+  final LoggingService _loggingService = LoggingService();
 
   static const List<String> _textHeaders = [
     'EMPRESA',
@@ -82,6 +85,7 @@ class FlatFileSpreadsheetService
     for (var path in paths) {
       final file = File(path);
       if (!file.existsSync()) {
+        _loggingService.error('El archivo no existe en la ruta especificada: $path');
         throw ArgumentError(
           'El archivo no existe en la ruta especificada: $path',
         );
@@ -91,12 +95,14 @@ class FlatFileSpreadsheetService
       final nameLower = fileName.toLowerCase();
 
       if (!nameLower.endsWith('.csv') && !nameLower.endsWith('.txt')) {
+        _loggingService.error('El archivo "$fileName" no es un archivo plano válido. Debe tener extensión .csv o .txt.');
         throw ArgumentError(
           'El archivo "$fileName" no es un archivo plano válido. Debe tener extensión .csv o .txt.',
         );
       }
 
       if (fileName.startsWith('~')) {
+        _loggingService.error('El archivo "$fileName" es un archivo temporal y no puede ser procesado.');
         throw ArgumentError(
           'El archivo "$fileName" es un archivo temporal y no puede ser procesado.',
         );
@@ -122,13 +128,13 @@ class FlatFileSpreadsheetService
 
       if (!valid) {
         final error = "Archivo plano inválido o no encontrado: $path";
-        print('Aviso: $error');
+        _loggingService.error(error);
         throw ArgumentError(error);
       }
       validFiles.add(file);
     }
 
-    print('Procesando ${validFiles.length} archivos planos en paralelo...');
+    _loggingService.info('Procesando ${validFiles.length} archivos planos en paralelo...');
 
     // Procesar archivos planos en paralelo usando Future.wait
     final List<List<Map<String, String>>> allFilesRows = await Future.wait(
@@ -136,7 +142,7 @@ class FlatFileSpreadsheetService
         try {
           return await _readTextOrCsvFile(file, separator: separator);
         } catch (e) {
-          print('Error procesando archivo plano ${file.path}: $e');
+          _loggingService.error('Error procesando archivo plano ${file.path}: $e');
           throw FlatFileRuntimeException(e.toString());
         }
       }),

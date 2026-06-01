@@ -4,10 +4,11 @@ import 'package:sqflite/sqflite.dart';
 import 'package:sqflite_common_ffi/sqflite_ffi.dart';
 import 'package:path/path.dart' as p;
 import '../interfaces/database_service.dart';
+import 'logging_service.dart';
 
 class SqliteDatabaseService implements DatabaseService {
   Database? _db;
-
+LoggingService _loggingService = LoggingService();
   Database get db {
     if (_db == null) {
       throw StateError(
@@ -30,9 +31,10 @@ class SqliteDatabaseService implements DatabaseService {
     try {
       if (!dataDir.existsSync()) {
         dataDir.createSync(recursive: true);
-        print('Directorio de datos creado en: ${dataDir.absolute.path}');
+        _loggingService.info('Directorio de datos creado en: ${dataDir.absolute.path}');
       }
     } catch (e) {
+      _loggingService.error('Error al crear directorio de datos: $e');
       throw FileSystemException(
         'No se pudo crear el directorio de datos. Verifica permisos de escritura en: ${dataDir.path}',
         e.toString(),
@@ -40,7 +42,7 @@ class SqliteDatabaseService implements DatabaseService {
     }
 
     final dbPath = p.join(dataDir.path, 'data.db');
-    print('Abriendo base de datos SQLite en: $dbPath');
+    _loggingService.info('Abriendo base de datos SQLite en: $dbPath');
 
     // 3. Abrir la base de datos
     try {
@@ -77,6 +79,7 @@ class SqliteDatabaseService implements DatabaseService {
         },
       );
     } catch (e) {
+      _loggingService.error('Error al abrir base de datos: $e');
       throw FileSystemException(
         'No se pudo abrir o crear la base de datos SQLite en: $dbPath',
         e.toString(),
@@ -133,7 +136,7 @@ class SqliteDatabaseService implements DatabaseService {
         'name': 'url test',
         'url': 'https://api.miempresa.com',
       });
-      print('Configuraciones de API por defecto inicializadas.');
+      _loggingService.info('Configuraciones de API por defecto inicializadas.');
     }
 
     final pathCount = Sqflite.firstIntValue(
@@ -142,14 +145,14 @@ class SqliteDatabaseService implements DatabaseService {
     if (pathCount == 0) {
       await db.insert('path_config', {'path': 'C:/excel', 'is_active': 1});
       await db.insert('path_config', {'path': 'C:/excel_2', 'is_active': 0});
-      print('Configuraciones de rutas de lectura por defecto inicializadas.');
+      _loggingService.info('Configuraciones de rutas de lectura por defecto inicializadas.');
     }
   }
 
   @override
   Future<void> cleanOldCache() async {
     final now = DateTime.now();
-    print(
+    _loggingService.info(
       'Iniciando hook de limpieza de caché de trazabilidad... Hora local: $now',
     );
 
@@ -158,8 +161,8 @@ class SqliteDatabaseService implements DatabaseService {
       'data_send_cache',
       where: "create_at < datetime('now', '-6 days')",
     );
-    print(
-      'Limpieza de caché completada. Registros antiguos eliminados: $rowsDeleted',
+    _loggingService.info(
+      'Limpieza de caché completada, registros antiguos eliminados: $rowsDeleted',
     );
   }
 

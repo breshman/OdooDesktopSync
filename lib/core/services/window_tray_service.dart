@@ -3,9 +3,11 @@ import 'dart:io';
 import 'package:flutter/material.dart';
 import 'package:window_manager/window_manager.dart';
 import 'package:tray_manager/tray_manager.dart';
+import 'logging_service.dart';
 
 class WindowTrayService {
   /// Inicializa la ventana principal para arranque oculto
+  final LoggingService _loggingService = LoggingService();
   Future<void> initWindow() async {
     await windowManager.ensureInitialized();
 
@@ -35,9 +37,8 @@ class WindowTrayService {
     try {
       await trayManager.setIcon(iconPath);
     } catch (e) {
-      print(
-        'Aviso: No se pudo cargar el icono del System Tray "$iconPath": $e',
-      );
+      _loggingService.error('Error al cargar el icono del System Tray: $e');
+      
     }
 
     final List<MenuItem> menuItems = [
