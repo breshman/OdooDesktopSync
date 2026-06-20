@@ -7,6 +7,7 @@ import '../services/flat_file_spreadsheet_service.dart';
 import '../services/logging_service.dart';
 import '../services/window_tray_service.dart';
 import '../../api_server.dart';
+import '../iot/iot_manager.dart';
 
 /// Proveedor para la abstracción DatabaseService
 final databaseServiceProvider = Provider<DatabaseService>((ref) {
@@ -60,6 +61,14 @@ class ServerStatusNotifier extends Notifier<ServerStatus> {
     state = status;
   }
 }
+
+/// Proveedor para el gestor de dispositivos IoT
+final iotManagerProvider = Provider<IoTManager>((ref) {
+  final loggingService = ref.watch(loggingServiceProvider);
+  final manager = IoTManager.instance;
+  manager.init(loggingService, ref);
+  return manager;
+});
 
 final serverStatusProvider = NotifierProvider<ServerStatusNotifier, ServerStatus>(() {
   return ServerStatusNotifier();

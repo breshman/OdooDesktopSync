@@ -7,6 +7,7 @@ import 'package:shelf_router/shelf_router.dart';
 import 'core/interfaces/database_service.dart';
 import 'core/interfaces/spreadsheet_service.dart';
 import 'core/services/logging_service.dart';
+import 'core/iot/iot_manager.dart';
 
 class ApiServer {
   final DatabaseService dbService;
@@ -26,7 +27,7 @@ class ApiServer {
   Future<void> start() async {
     final router = Router();
 
-    // GET /status - Health Check
+        // GET /status - Health Check
     router.get('/status', (Request request) {
       final responseBody = {
         'status': 'OK',
@@ -37,6 +38,98 @@ class ApiServer {
         jsonEncode(responseBody),
         headers: {'content-type': 'application/json'},
       );
+    });
+
+    // POST /iot_drivers/action - Odoo JSON-RPC action dispatcher
+    router.post('/iot_drivers/action', (Request request) async {
+      try {
+        final bodyStr = await request.readAsString();
+        final json = jsonDecode(bodyStr);
+        final params = json['params'] ?? {};
+        final sessionId = params['session_id'];
+        final rawDeviceIdentifier = params['device_identifier'];
+        final actionData = params['data'] ?? {};
+
+        final iotManager = IoTManager.instance;
+        var deviceIdentifier = rawDeviceIdentifier;
+
+        final deviceTypes = ['display', 'printer', 'scanner', 'keyboard', 'camera', 'device', 'payment', 'scale', 'fiscal_data_module'];
+        if (deviceTypes.contains(rawDeviceIdentifier)) {
+          deviceIdentifier = iotManager.iotDevices.values
+              .firstWhere(
+                (d) => d.deviceType == rawDeviceIdentifier,
+                orElse: () => throw Exception('No device found for type: $rawDeviceIdentifier'),
+              )
+              .identifier;
+        }
+
+        final device = iotManager.iotDevices[deviceIdentifier];
+        if (device == null) {
+          loggingService.error('IoT Device not found: $deviceIdentifier');
+          return Response.ok(
+            jsonEncode({
+              'jsonrpc': '2.0',
+              'result': false,
+              'id': json['id'],
+            }),
+            headers: {'content-type': 'application/json'},
+          );
+        }
+
+        final actionPayload = Map<String, dynamic>.from(actionData);
+        actionPayload['session_id'] = sessionId;
+        loggingService.info('Calling action ${actionPayload['action']} for device $deviceIdentifier');
+
+        final result = await device.action(actionPayload);
+
+        return Response.ok(
+          jsonEncode({
+            'jsonrpc': '2.0',
+            'result': result,
+            'id': json['id'],
+          }),
+          headers: {'content-type': 'application/json'},
+        );
+      } catch (e) {
+        loggingService.error('Error executing IoT action: $e');
+        return Response.ok(
+          jsonEncode({
+            'jsonrpc': '2.0',
+            'error': {'code': -32603, 'message': 'Internal Error', 'data': e.toString()},
+          }),
+          headers: {'content-type': 'application/json'},
+        );
+      }
+    });
+
+    // POST /iot_drivers/event - Odoo JSON-RPC long polling listener
+    router.post('/iot_drivers/event', (Request request) async {
+      try {
+        final bodyStr = await request.readAsString();
+        final json = jsonDecode(bodyStr);
+        final params = json['params'] ?? {};
+        final listener = params['listener'] ?? {};
+
+        final iotManager = IoTManager.instance;
+        final event = await iotManager.waitForEvent(Map<String, dynamic>.from(listener));
+
+        return Response.ok(
+          jsonEncode({
+            'jsonrpc': '2.0',
+            'result': event ?? {},
+            'id': json['id'],
+          }),
+          headers: {'content-type': 'application/json'},
+        );
+      } catch (e) {
+        return Response.ok(
+          jsonEncode({
+            'jsonrpc': '2.0',
+            'error': {'code': -32603, 'message': 'Internal Error', 'data': e.toString()},
+          }),
+          headers: {'content-type': 'application/json'},
+        );
+      }
     });
 
     // GET /api/config - Obtener configuración unificada

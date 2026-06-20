@@ -7,6 +7,12 @@ import 'core/services/logging_service.dart';
 import 'core/services/window_tray_service.dart';
 import 'ui/screens/dashboard_screen.dart';
 import 'ui/widgets/logs_dialog.dart';
+import 'core/iot/iot_manager.dart';
+import 'core/iot/websocket_client.dart';
+import 'core/iot/drivers/printer_driver.dart';
+import 'core/iot/drivers/scale_driver.dart';
+import 'core/iot/interfaces/printer_interface.dart';
+import 'core/iot/interfaces/serial_interface.dart';
 
 void main() {
   WidgetsFlutterBinding.ensureInitialized();
@@ -32,6 +38,7 @@ class _MyAppState extends ConsumerState<MyApp> with TrayListener, WindowListener
   String? _initializationError;
   bool _initializationFailed = false;
   late LoggingService _loggingService;
+  WebSocketClient? _wsClient;
 
   @override
   void initState() {
@@ -53,6 +60,8 @@ class _MyAppState extends ConsumerState<MyApp> with TrayListener, WindowListener
 
   @override
   void dispose() {
+    _wsClient?.stop();
+    ref.read(iotManagerProvider).stopAll();
     _windowTrayService.removeTrayListener(this);
     _windowTrayService.removeWindowListener(this);
     super.dispose();
@@ -119,6 +128,39 @@ class _MyAppState extends ConsumerState<MyApp> with TrayListener, WindowListener
     try {
       await dbService.init();
       await apiServer.start();
+
+      // Initialize IoT drivers and interfaces
+      PrinterDriver.register();
+      ScaleDriver.register();
+
+      final IoTManager iotManager = ref.read(iotManagerProvider);
+      iotManager.addInterface(PrinterInterface(allowUnsupported: false));
+      iotManager.addInterface(SerialInterface(allowUnsupported: true));
+      await iotManager.startAll();
+
+      // Check if Odoo database server is configured to start websocket client
+      final config = await dbService.getConfig();
+      final List apiConfigs = config['api'] ?? [];
+      String? odooUrl;
+      for (final api in apiConfigs) {
+        final name = api['name']?.toString().toLowerCase() ?? '';
+        if (name.contains('odoo') || name.contains('test') || name.contains('produc')) {
+          odooUrl = api['url'];
+          break;
+        }
+      }
+      odooUrl ??= apiConfigs.isNotEmpty ? apiConfigs.first['url'] : null;
+
+      if (odooUrl != null && odooUrl.isNotEmpty && odooUrl != 'https://api.miempresa.com') {
+        _wsClient = WebSocketClient(
+          serverUrl: odooUrl,
+          channel: 'iot_channel_desktop_sync',
+          loggingService: _loggingService,
+          identifier: 'iot_box_desktop_sync',
+        );
+        _wsClient!.start();
+      }
+
       ref.read(serverStatusProvider.notifier).setStatus(ServerStatus.active);
     } catch (e, stack) {
       _initializationError = e.toString();
