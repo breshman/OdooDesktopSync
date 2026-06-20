@@ -17,12 +17,8 @@ import 'core/iot/interfaces/serial_interface.dart';
 void main() {
   WidgetsFlutterBinding.ensureInitialized();
 
-  // Crear contenedor Riverpod para inyección y arranque seguro antes de runApp()
-  final container = ProviderContainer();
-
-  // Ejecutar la aplicación inmediatamente. La inicialización de base de datos
-  // y del servidor HTTP se hará después, desde el propio widget.
-  runApp(UncontrolledProviderScope(container: container, child: const MyApp()));
+  // Riverpod v3 usa ProviderScope como raíz estándar para el árbol de providers.
+  runApp(const ProviderScope(child: MyApp()));
 }
 
 class MyApp extends ConsumerStatefulWidget {
@@ -32,8 +28,10 @@ class MyApp extends ConsumerStatefulWidget {
   ConsumerState<MyApp> createState() => _MyAppState();
 }
 
-class _MyAppState extends ConsumerState<MyApp> with TrayListener, WindowListener {
+class _MyAppState extends ConsumerState<MyApp>
+    with TrayListener, WindowListener {
   late WindowTrayService _windowTrayService;
+  late IoTManager _iotManager;
   bool _initializing = true;
   String? _initializationError;
   bool _initializationFailed = false;
@@ -44,6 +42,7 @@ class _MyAppState extends ConsumerState<MyApp> with TrayListener, WindowListener
   void initState() {
     super.initState();
     _windowTrayService = ref.read(windowTrayServiceProvider);
+    _iotManager = ref.read(iotManagerProvider);
     _loggingService = ref.read(loggingServiceProvider);
 
     // Configurar System Tray y registrar a esta instancia como Listener de bandeja y ventana
@@ -61,7 +60,7 @@ class _MyAppState extends ConsumerState<MyApp> with TrayListener, WindowListener
   @override
   void dispose() {
     _wsClient?.stop();
-    ref.read(iotManagerProvider).stopAll();
+    _iotManager.stopAll();
     _windowTrayService.removeTrayListener(this);
     _windowTrayService.removeWindowListener(this);
     super.dispose();
@@ -116,8 +115,8 @@ class _MyAppState extends ConsumerState<MyApp> with TrayListener, WindowListener
       home: _initializing
           ? _LoadingScreen(errorMessage: _initializationError)
           : (_initializationFailed
-              ? _ErrorScreen(errorMessage: _initializationError)
-              : const DashboardScreen()),
+                ? _ErrorScreen(errorMessage: _initializationError)
+                : const DashboardScreen()),
     );
   }
 
@@ -133,10 +132,9 @@ class _MyAppState extends ConsumerState<MyApp> with TrayListener, WindowListener
       PrinterDriver.register();
       ScaleDriver.register();
 
-      final IoTManager iotManager = ref.read(iotManagerProvider);
-      iotManager.addInterface(PrinterInterface(allowUnsupported: false));
-      iotManager.addInterface(SerialInterface(allowUnsupported: true));
-      await iotManager.startAll();
+      _iotManager.addInterface(PrinterInterface(allowUnsupported: false));
+      _iotManager.addInterface(SerialInterface(allowUnsupported: true));
+      await _iotManager.startAll();
 
       // Check if Odoo database server is configured to start websocket client
       final config = await dbService.getConfig();
@@ -144,14 +142,18 @@ class _MyAppState extends ConsumerState<MyApp> with TrayListener, WindowListener
       String? odooUrl;
       for (final api in apiConfigs) {
         final name = api['name']?.toString().toLowerCase() ?? '';
-        if (name.contains('odoo') || name.contains('test') || name.contains('produc')) {
+        if (name.contains('odoo') ||
+            name.contains('test') ||
+            name.contains('produc')) {
           odooUrl = api['url'];
           break;
         }
       }
       odooUrl ??= apiConfigs.isNotEmpty ? apiConfigs.first['url'] : null;
 
-      if (odooUrl != null && odooUrl.isNotEmpty && odooUrl != 'https://api.miempresa.com') {
+      if (odooUrl != null &&
+          odooUrl.isNotEmpty &&
+          odooUrl != 'https://api.miempresa.com') {
         _wsClient = WebSocketClient(
           serverUrl: odooUrl,
           channel: 'iot_channel_desktop_sync',
@@ -167,7 +169,6 @@ class _MyAppState extends ConsumerState<MyApp> with TrayListener, WindowListener
       _initializationFailed = true;
       _loggingService.error('Error inicializando servicios: $e');
       _loggingService.error('Stack trace: $stack');
-
     } finally {
       if (mounted) {
         setState(() {
@@ -179,7 +180,7 @@ class _MyAppState extends ConsumerState<MyApp> with TrayListener, WindowListener
 }
 
 class _LoadingScreen extends StatelessWidget {
-  const _LoadingScreen({this.errorMessage, super.key});
+  const _LoadingScreen({this.errorMessage});
 
   final String? errorMessage;
 
@@ -220,7 +221,7 @@ class _LoadingScreen extends StatelessWidget {
 }
 
 class _ErrorScreen extends StatelessWidget {
-  const _ErrorScreen({required this.errorMessage, super.key});
+  const _ErrorScreen({required this.errorMessage});
 
   final String? errorMessage;
 
@@ -253,19 +254,13 @@ class _ErrorScreen extends StatelessWidget {
               Text(
                 errorMessage ?? 'Verifica permisos y vuelve a intentar.',
                 textAlign: TextAlign.center,
-                style: const TextStyle(
-                  color: Color(0xFF94A3B8),
-                  fontSize: 14,
-                ),
+                style: const TextStyle(color: Color(0xFF94A3B8), fontSize: 14),
               ),
               const SizedBox(height: 24),
               const Text(
                 'Reinicia la aplicación después de corregir el problema.',
                 textAlign: TextAlign.center,
-                style: TextStyle(
-                  color: Color(0xFF94A3B8),
-                  fontSize: 14,
-                ),
+                style: TextStyle(color: Color(0xFF94A3B8), fontSize: 14),
               ),
               const SizedBox(height: 24),
               ElevatedButton.icon(
@@ -275,7 +270,10 @@ class _ErrorScreen extends StatelessWidget {
                 style: ElevatedButton.styleFrom(
                   backgroundColor: const Color(0xFF1E293B),
                   foregroundColor: Colors.white,
-                  padding: const EdgeInsets.symmetric(horizontal: 20, vertical: 12),
+                  padding: const EdgeInsets.symmetric(
+                    horizontal: 20,
+                    vertical: 12,
+                  ),
                   shape: RoundedRectangleBorder(
                     borderRadius: BorderRadius.circular(10),
                     side: BorderSide(color: Colors.white.withOpacity(0.1)),
