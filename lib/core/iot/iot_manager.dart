@@ -6,6 +6,7 @@ import 'iot_interface.dart';
 
 typedef DriverFactory = IoTDriver Function(String identifier, dynamic device);
 
+/// Represents a registered driver factory and its matching criteria.
 class DriverRegistryEntry {
   final DriverFactory factory;
   final String connectionType;
@@ -20,6 +21,7 @@ class DriverRegistryEntry {
   });
 }
 
+/// Holds the current snapshot of connected and unsupported IoT devices.
 class IoTState {
   final Map<String, IoTDriver> iotDevices;
   final Map<String, Map<String, dynamic>> unsupportedDevices;
@@ -27,6 +29,7 @@ class IoTState {
   const IoTState({required this.iotDevices, required this.unsupportedDevices});
 }
 
+/// Coordinates IoT interfaces, drivers, and device state updates.
 class IoTManager {
   static final IoTManager _instance = IoTManager._internal();
   static IoTManager get instance => _instance;
@@ -46,18 +49,20 @@ class IoTManager {
 
   IoTManager._internal();
 
+  /// Initializes the manager with logging and Riverpod references.
   void init(LoggingService logs, Ref refInstance) {
     loggingService = logs;
     ref = refInstance;
   }
 
+  /// Publishes the latest device state to the Riverpod notifier.
   void notifyStateChanged() {
-    ref.read(iotStateProvider.notifier).updateState(
-      iotDevices,
-      unsupportedDevices,
-    );
+    ref
+        .read(iotStateProvider.notifier)
+        .updateState(iotDevices, unsupportedDevices);
   }
 
+  /// Registers a new driver implementation for a specific connection type.
   static void registerDriver({
     required DriverFactory factory,
     required String connectionType,
@@ -76,6 +81,7 @@ class IoTManager {
     driverRegistry.sort((a, b) => b.priority.compareTo(a.priority));
   }
 
+  /// Returns the first compatible driver entry for the given device.
   DriverRegistryEntry? findCompatibleDriver(
     String connectionType,
     dynamic device,
@@ -88,6 +94,7 @@ class IoTManager {
     return null;
   }
 
+  /// Broadcasts a device event to all pending listeners.
   void triggerDeviceEvent(
     String deviceIdentifier,
     Map<String, dynamic> response,
@@ -113,6 +120,7 @@ class IoTManager {
     }
   }
 
+  /// Waits for the next matching device event within the timeout window.
   Future<Map<String, dynamic>?> waitForEvent(
     Map<String, dynamic> listener,
   ) async {
@@ -146,10 +154,12 @@ class IoTManager {
     }
   }
 
+  /// Registers an IoT interface to be managed by this instance.
   void addInterface(IoTInterface interface) {
     interfaces.add(interface);
   }
 
+  /// Starts all registered interfaces and refreshes the UI state.
   Future<void> startAll() async {
     loggingService.info(
       'Starting IoT Manager with ${interfaces.length} active interfaces.',
@@ -160,6 +170,7 @@ class IoTManager {
     notifyStateChanged();
   }
 
+  /// Stops all interfaces and clears the current device lists.
   Future<void> stopAll() async {
     loggingService.info('Stopping all IoT interfaces.');
     for (final interface in interfaces) {
@@ -171,15 +182,14 @@ class IoTManager {
   }
 }
 
+/// Riverpod notifier that keeps the IoT state snapshot up to date.
 class IoTStateNotifier extends Notifier<IoTState> {
   @override
   IoTState build() {
-    return const IoTState(
-      iotDevices: {},
-      unsupportedDevices: {},
-    );
+    return const IoTState(iotDevices: {}, unsupportedDevices: {});
   }
 
+  /// Replaces the state with a copy of the current device maps.
   void updateState(
     Map<String, IoTDriver> iotDevices,
     Map<String, Map<String, dynamic>> unsupportedDevices,
