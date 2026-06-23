@@ -1,5 +1,6 @@
 import 'dart:convert';
 import 'dart:io';
+import 'package:flutter/material.dart';
 import 'package:flutter_test/flutter_test.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:odoo_async/core/services/flat_file_spreadsheet_service.dart';
@@ -14,6 +15,7 @@ import 'package:odoo_async/core/services/window_tray_service.dart';
 import 'package:odoo_async/core/services/logging_service.dart';
 import 'package:odoo_async/api_server.dart';
 import 'package:odoo_async/main.dart';
+import 'package:odoo_async/ui/screens/dashboard_screen.dart';
 
 // Mocks livianos para evitar el acceso a archivos de sistema y FFI en ambiente de pruebas
 class MockDatabaseService implements DatabaseService {
@@ -116,30 +118,28 @@ Future<void> saveRowsToJsonFile(
 
 void main() {
   testWidgets('Dashboard smoke test', (WidgetTester tester) async {
-    // Montar el widget de la aplicación dentro de un ProviderScope
-    // Sobrescribimos los proveedores reales con los mocks para aislamiento absoluto
     await tester.pumpWidget(
-      ProviderScope(
-        overrides: [
-          databaseServiceProvider.overrideWithValue(MockDatabaseService()),
-          spreadsheetServiceProvider.overrideWithValue(
-            MockSpreadsheetService(),
-          ),
-          flatFileServiceProvider.overrideWithValue(MockSpreadsheetService()),
-          apiServerProvider.overrideWithValue(MockApiServer()),
-          windowTrayServiceProvider.overrideWithValue(MockWindowTrayService()),
-        ],
-        child: const MyApp(),
+      MaterialApp(
+        home: ProviderScope(
+          overrides: [
+            databaseServiceProvider.overrideWithValue(MockDatabaseService()),
+            spreadsheetServiceProvider.overrideWithValue(
+              MockSpreadsheetService(),
+            ),
+            flatFileServiceProvider.overrideWithValue(MockSpreadsheetService()),
+            apiServerProvider.overrideWithValue(MockApiServer()),
+            windowTrayServiceProvider.overrideWithValue(
+              MockWindowTrayService(),
+            ),
+          ],
+          child: const DashboardScreen(),
+        ),
       ),
     );
 
-    // Permitir la inicialización asíncrona en addPostFrameCallback
-    await tester.pump();
-    await tester.pump(const Duration(milliseconds: 200));
-    await tester.pump();
+    await tester.pumpAndSettle();
 
-    // Confirmar que el título principal de cabecera existe en pantalla
-    expect(find.text('Odoo Desktop Sync'), findsOneWidget);
+    expect(find.text('IoT Box'), findsOneWidget);
   });
 
   test('Procesar archivos de demo de Excel', () async {
