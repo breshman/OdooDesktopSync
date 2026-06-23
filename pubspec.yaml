@@ -76,6 +76,7 @@ flutter:
     - assets/images/app_icon.png
     - assets/images/app_icon.ico
     - assets/images/logo-odoo-CMP.ico
+    - lib/core/iot/drivers/windows_printer_helper.ps1
   #   - images/a_dot_ham.jpeg
 
   # An image asset can refer to one or more resolution-specific "variants", see

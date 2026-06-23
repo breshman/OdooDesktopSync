@@ -150,7 +150,7 @@ class _MyAppState extends ConsumerState<MyApp> with TrayListener, WindowListener
       }
       odooUrl ??= apiConfigs.isNotEmpty ? apiConfigs.first['url'] : null;
 
-      if (odooUrl != null && odooUrl.isNotEmpty && odooUrl != 'https://api.miempresa.com') {
+      if (odooUrl != null && odooUrl.isNotEmpty && odooUrl != '') {
         _wsClient = WebSocketClient(
           serverUrl: odooUrl,
           channel: 'iot_channel_desktop_sync',
@@ -263,7 +263,7 @@ class _ErrorScreen extends StatelessWidget {
                 'Reinicia la aplicación después de corregir el problema.',
                 textAlign: TextAlign.center,
                 style: TextStyle(
-                  color: context.theme.colors.mutedForeground.withOpacity(0.7),
+                  color: context.theme.colors.mutedForeground.withValues(alpha: 0.7),
                   fontSize: 14,
                 ),
               ),

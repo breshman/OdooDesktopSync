@@ -4,18 +4,12 @@ import 'package:forui/forui.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import '../../core/providers/dependency_providers.dart';
 import '../../core/iot/iot_manager.dart';
-import '../../core/iot/drivers/scale_driver.dart';
-import '../../core/iot/drivers/printer_driver.dart';
 import '../../core/services/logging_service.dart';
 import '../widgets/status_badge.dart';
+import 'devices_view.dart';
+import 'server_printer_view.dart';
 
-enum DashboardTab {
-  overview,
-  devices,
-  wifi,
-  odoo,
-  logs,
-}
+enum DashboardTab { overview, devices, wifi, odoo, logs }
 
 class DashboardScreen extends ConsumerStatefulWidget {
   const DashboardScreen({super.key});
@@ -27,7 +21,7 @@ class DashboardScreen extends ConsumerStatefulWidget {
 class _DashboardScreenState extends ConsumerState<DashboardScreen> {
   DashboardTab _currentTab = DashboardTab.overview;
   bool _showAdvanced = false;
-  
+
   // Log viewer state
   List<String> _logs = [];
   bool _logsLoading = true;
@@ -35,22 +29,61 @@ class _DashboardScreenState extends ConsumerState<DashboardScreen> {
   // Controllers for WiFi and Odoo
   late TextEditingController _wifiSsidController;
   late TextEditingController _wifiPasswordController;
-  late TextEditingController _odooUrlController;
+
 
   @override
   void initState() {
     super.initState();
     _wifiSsidController = TextEditingController();
     _wifiPasswordController = TextEditingController();
-    _odooUrlController = TextEditingController(text: 'https://miempresa.odoo.com');
+  
     _loadLogs();
+    WidgetsBinding.instance.addPostFrameCallback((_) {
+      _loadConfig();
+    });
+  }
+
+  Future<void> _loadConfig() async {
+    final dbService = ref.read(databaseServiceProvider);
+    try {
+      final config = await dbService.getConfig();
+      final List apiConfigs = config['api'] ?? [];
+      String? odooUrl;
+      for (final api in apiConfigs) {
+        final name = api['name']?.toString().toLowerCase() ?? '';
+        if (name.contains('odoo') || name.contains('test') || name.contains('produc')) {
+          odooUrl = api['url'];
+          break;
+        }
+      }
+      odooUrl ??= apiConfigs.isNotEmpty ? apiConfigs.first['url'] : null;
+
+      final wifiSsid = config['wifi_ssid']?.toString();
+      final wifiPassword = config['wifi_password']?.toString();
+
+      if (mounted) {
+        setState(() {
+          // if (odooUrl != null && odooUrl.isNotEmpty) {
+          //   _odooUrlController.text = odooUrl;
+          // }
+          if (wifiSsid != null && wifiSsid.isNotEmpty) {
+            _wifiSsidController.text = wifiSsid;
+          }
+          if (wifiPassword != null && wifiPassword.isNotEmpty) {
+            _wifiPasswordController.text = wifiPassword;
+          }
+        });
+      }
+    } catch (e) {
+      ref.read(loggingServiceProvider).error('Error al cargar la configuración de base de datos: $e');
+    }
   }
 
   @override
   void dispose() {
     _wifiSsidController.dispose();
     _wifiPasswordController.dispose();
-    _odooUrlController.dispose();
+  
     super.dispose();
   }
 
@@ -72,7 +105,9 @@ class _DashboardScreenState extends ConsumerState<DashboardScreen> {
       context: context,
       builder: (context, s, a) => FDialog(
         title: const Text('¿Limpiar logs?'),
-        body: const Text('Esto vaciará el historial de logs de sincronización en el disco de manera permanente.'),
+        body: const Text(
+          'Esto vaciará el historial de logs de sincronización en el disco de manera permanente.',
+        ),
         actions: [
           FButton(
             variant: FButtonVariant.outline,
@@ -158,7 +193,8 @@ class _DashboardScreenState extends ConsumerState<DashboardScreen> {
                 icon: const Icon(FLucideIcons.layoutDashboard),
                 label: const Text('Resumen'),
                 selected: _currentTab == DashboardTab.overview,
-                onPress: () => setState(() => _currentTab = DashboardTab.overview),
+                onPress: () =>
+                    setState(() => _currentTab = DashboardTab.overview),
               ),
               FSidebarItem(
                 icon: const Icon(FLucideIcons.terminal),
@@ -178,7 +214,8 @@ class _DashboardScreenState extends ConsumerState<DashboardScreen> {
                 icon: const Icon(FLucideIcons.cpu),
                 label: const Text('Dispositivos'),
                 selected: _currentTab == DashboardTab.devices,
-                onPress: () => setState(() => _currentTab = DashboardTab.devices),
+                onPress: () =>
+                    setState(() => _currentTab = DashboardTab.devices),
               ),
               FSidebarItem(
                 icon: const Icon(FLucideIcons.wifi),
@@ -188,7 +225,7 @@ class _DashboardScreenState extends ConsumerState<DashboardScreen> {
               ),
               FSidebarItem(
                 icon: const Icon(FLucideIcons.database),
-                label: const Text('Servidor Odoo'),
+                label: const Text('Servidor de impresión'),
                 selected: _currentTab == DashboardTab.odoo,
                 onPress: () => setState(() => _currentTab = DashboardTab.odoo),
               ),
@@ -203,16 +240,20 @@ class _DashboardScreenState extends ConsumerState<DashboardScreen> {
     );
   }
 
-  Widget _buildBody(BuildContext context, IoTState iotState, IoTManager iotManager) {
+  Widget _buildBody(
+    BuildContext context,
+    IoTState iotState,
+    IoTManager iotManager,
+  ) {
     switch (_currentTab) {
       case DashboardTab.overview:
         return _buildOverviewTab(context, iotState);
       case DashboardTab.devices:
-        return _buildDevicesTab(context, iotState, iotManager);
+        return DevicesView(iotState: iotState, iotManager: iotManager);
       case DashboardTab.wifi:
         return _buildWifiTab(context);
       case DashboardTab.odoo:
-        return _buildOdooTab(context);
+        return ServerPrinterView();
       case DashboardTab.logs:
         return _buildLogsTab(context);
     }
@@ -220,8 +261,9 @@ class _DashboardScreenState extends ConsumerState<DashboardScreen> {
 
   Widget _buildOverviewTab(BuildContext context, IoTState iotState) {
     final theme = FTheme.of(context);
- 
-    final numDevices = iotState.iotDevices.length + iotState.unsupportedDevices.length;
+
+    final numDevices =
+        iotState.iotDevices.length + iotState.unsupportedDevices.length;
 
     return SingleChildScrollView(
       child: Column(
@@ -232,13 +274,19 @@ class _DashboardScreenState extends ConsumerState<DashboardScreen> {
             children: [
               Text(
                 'Resumen del Sistema',
-                style: theme.typography.body.lg.copyWith(fontWeight: FontWeight.bold),
+                style: theme.typography.body.lg.copyWith(
+                  fontWeight: FontWeight.bold,
+                ),
               ),
               FButton(
                 variant: FButtonVariant.outline,
                 onPress: () => setState(() => _showAdvanced = !_showAdvanced),
-                prefix: Icon(_showAdvanced ? FLucideIcons.settings : FLucideIcons.sliders),
-                child: Text(_showAdvanced ? 'Ocultar Avanzado' : 'Mostrar Avanzado'),
+                prefix: Icon(
+                  _showAdvanced ? FLucideIcons.settings : FLucideIcons.sliders,
+                ),
+                child: Text(
+                  _showAdvanced ? 'Ocultar Avanzado' : 'Mostrar Avanzado',
+                ),
               ),
             ],
           ),
@@ -281,7 +329,9 @@ class _DashboardScreenState extends ConsumerState<DashboardScreen> {
                       onPress: () {
                         showFToast(
                           context: context,
-                          title: const Text('Verificando actualizaciones... Todos los paquetes están actualizados.'),
+                          title: const Text(
+                            'Verificando actualizaciones... Todos los paquetes están actualizados.',
+                          ),
                         );
                       },
                       child: const Text('Actualizar'),
@@ -296,22 +346,30 @@ class _DashboardScreenState extends ConsumerState<DashboardScreen> {
                 FTile(
                   prefix: const Icon(FLucideIcons.wifi),
                   title: const Text('Estado de Internet'),
-                  subtitle: Text(Platform.isWindows ? 'Conexión Ethernet' : 'Wi-Fi: Local_Network'),
+                  subtitle: Text(
+                    Platform.isWindows
+                        ? 'Conexión Ethernet'
+                        : 'Wi-Fi: Local_Network',
+                  ),
                   suffix: FButton(
                     variant: FButtonVariant.outline,
-                    onPress: () => setState(() => _currentTab = DashboardTab.wifi),
+                    onPress: () =>
+                        setState(() => _currentTab = DashboardTab.wifi),
                     child: const Text('Configurar'),
                   ),
                 ),
                 FTile(
                   prefix: const Icon(FLucideIcons.database),
                   title: const Text('Base de Datos Odoo'),
-                  subtitle: Text(ref.watch(serverStatusProvider) == ServerStatus.active
-                      ? 'Conectado (${_odooUrlController.text})'
-                      : 'No Conectado'),
+                  subtitle: Text(
+                    ref.watch(serverStatusProvider) == ServerStatus.active
+                        ? 'Conectado'
+                        : 'No Conectado',
+                  ),
                   suffix: FButton(
                     variant: FButtonVariant.outline,
-                    onPress: () => setState(() => _currentTab = DashboardTab.odoo),
+                    onPress: () =>
+                        setState(() => _currentTab = DashboardTab.odoo),
                     child: const Text('Configurar'),
                   ),
                 ),
@@ -321,7 +379,8 @@ class _DashboardScreenState extends ConsumerState<DashboardScreen> {
                   subtitle: Text('$numDevices dispositivos conectados'),
                   suffix: FButton(
                     variant: FButtonVariant.outline,
-                    onPress: () => setState(() => _currentTab = DashboardTab.devices),
+                    onPress: () =>
+                        setState(() => _currentTab = DashboardTab.devices),
                     child: const Text('Administrar'),
                   ),
                 ),
@@ -329,7 +388,7 @@ class _DashboardScreenState extends ConsumerState<DashboardScreen> {
             ),
           ),
           const SizedBox(height: 16),
-          
+
           FCard(
             title: const Text('Acciones Rápidas'),
             child: Wrap(
@@ -340,7 +399,9 @@ class _DashboardScreenState extends ConsumerState<DashboardScreen> {
                   onPress: () {
                     showFToast(
                       context: context,
-                      title: const Text('Se ha abierto el panel de visualización de estado.'),
+                      title: const Text(
+                        'Se ha abierto el panel de visualización de estado.',
+                      ),
                     );
                   },
                   child: const Text('Pantalla de Estado'),
@@ -359,7 +420,9 @@ class _DashboardScreenState extends ConsumerState<DashboardScreen> {
                     onPress: () {
                       showFToast(
                         context: context,
-                        title: const Text('Activando/desactivando el túnel de depuración remota...'),
+                        title: const Text(
+                          'Activando/desactivando el túnel de depuración remota...',
+                        ),
                       );
                     },
                     child: const Text('Depuración Remota'),
@@ -368,7 +431,9 @@ class _DashboardScreenState extends ConsumerState<DashboardScreen> {
                     onPress: () {
                       showFToast(
                         context: context,
-                        title: const Text('Descargando nuevamente los controladores de cajas IoT.'),
+                        title: const Text(
+                          'Descargando nuevamente los controladores de cajas IoT.',
+                        ),
                       );
                     },
                     child: const Text('Descargar Handlers'),
@@ -377,143 +442,6 @@ class _DashboardScreenState extends ConsumerState<DashboardScreen> {
               ],
             ),
           ),
-        ],
-      ),
-    );
-  }
-
-  Widget _buildDevicesTab(BuildContext context, IoTState iotState, IoTManager iotManager) {
-    final theme = FTheme.of(context);
-    final devicesList = iotState.iotDevices.values.toList();
-    final unsupportedList = iotState.unsupportedDevices.values.toList();
-
-    return SingleChildScrollView(
-      child: Column(
-        crossAxisAlignment: CrossAxisAlignment.start,
-        children: [
-          Text(
-            'Administración de Dispositivos',
-            style: theme.typography.body.xl2.copyWith(fontWeight: FontWeight.bold),
-          ),
-          const SizedBox(height: 16),
-          const FDivider(),
-          const SizedBox(height: 16),
-
-          if (devicesList.isEmpty && unsupportedList.isEmpty)
-            const Center(
-              child: Padding(
-                padding: EdgeInsets.all(24.0),
-                child: Text('No hay dispositivos conectados.'),
-              ),
-            ),
-
-          if (devicesList.isNotEmpty) ...[
-            Text('Controladores de Sistema Activos', style: theme.typography.body.lg.copyWith(fontWeight: FontWeight.w600)),
-            const SizedBox(height: 12),
-            ...devicesList.map((device) {
-              final isScale = device is ScaleDriver;
-              final isPrinter = device is PrinterDriver;
-
-              return Padding(
-                padding: const EdgeInsets.only(bottom: 12.0),
-                child: FCard(
-                  title: Row(
-                    mainAxisAlignment: MainAxisAlignment.spaceBetween,
-                    children: [
-                      Text(device.deviceName),
-                      FBadge(
-                        child: Text(device.deviceType.toUpperCase()),
-                      ),
-                    ],
-                  ),
-                  subtitle: Column(
-                    crossAxisAlignment: CrossAxisAlignment.start,
-                    children: [
-                      Text('Identificador: ${device.identifier}'),
-                      Text('Conexión: ${device.deviceConnection}'),
-                    ],
-                  ),
-                  child: Column(
-                    crossAxisAlignment: CrossAxisAlignment.start,
-                    children: [
-                      if (isScale) ...[
-                        const SizedBox(height: 12),
-                        Row(
-                          mainAxisAlignment: MainAxisAlignment.spaceBetween,
-                          children: [
-                            Text(
-                              'Peso Simulado: ${device.data['value']} kg',
-                              style: const TextStyle(fontWeight: FontWeight.bold),
-                            ),
-                            Row(
-                              children: [
-                                FButton(
-                                  variant: FButtonVariant.outline,
-                                  onPress: () {
-                                    setState(() {
-                                      device.setSimulatedWeight(0.0);
-                                    });
-                                  },
-                                  child: const Text('Cero'),
-                                ),
-                                const SizedBox(width: 8),
-                                FButton(
-                                  variant: FButtonVariant.outline,
-                                  onPress: () {
-                                    setState(() {
-                                      final current = (device.data['value'] as num).toDouble();
-                                      device.setSimulatedWeight(double.parse((current + 0.500).toStringAsFixed(3)));
-                                    });
-                                  },
-                                  child: const Text('+0.5kg'),
-                                ),
-                              ],
-                            ),
-                          ],
-                        ),
-                      ],
-                      if (isPrinter) ...[
-                        const SizedBox(height: 12),
-                        FButton(
-                          onPress: () {
-                            device.action({
-                              'action': 'print_receipt',
-                              'receipt': '================================\n'
-                                  '        ODOO DESKTOP SYNC       \n'
-                                  '        TEST TICKET SUCCESS      \n'
-                                  '================================\n'
-                                  'System device prints successfully.\n'
-                                  'Date: ${DateTime.now().toLocal()}\n'
-                                  '================================\n'
-                            });
-                            showFToast(
-                              context: context,
-                              title: const Text('Se ha enviado la tarea de impresión de prueba.'),
-                            );
-                          },
-                          prefix: const Icon(FLucideIcons.printer),
-                          child: const Text('Imprimir Ticket de Prueba'),
-                        ),
-                      ],
-                    ],
-                  ),
-                ),
-              );
-            }).toList(),
-          ],
-
-          if (unsupportedList.isNotEmpty) ...[
-            const SizedBox(height: 16),
-            Text('Dispositivos no Soportados', style: theme.typography.body.lg.copyWith(color: theme.colors.destructive, fontWeight: FontWeight.w600)),
-            const SizedBox(height: 12),
-            ...unsupportedList.map((device) {
-              return FTile(
-                prefix: Icon(FLucideIcons.alertTriangle, color: theme.colors.destructive),
-                title: Text(device['name'] ?? 'Dispositivo desconocido'),
-                subtitle: Text('Puerto: ${device['connection']} | Identificador: ${device['identifier']}'),
-              );
-            }).toList(),
-          ],
         ],
       ),
     );
@@ -528,7 +456,9 @@ class _DashboardScreenState extends ConsumerState<DashboardScreen> {
         children: [
           Text(
             'Configuración Wi-Fi',
-            style: theme.typography.body.xl2.copyWith(fontWeight: FontWeight.bold),
+            style: theme.typography.body.xl2.copyWith(
+              fontWeight: FontWeight.bold,
+            ),
           ),
           const SizedBox(height: 16),
           const FDivider(),
@@ -540,27 +470,44 @@ class _DashboardScreenState extends ConsumerState<DashboardScreen> {
               crossAxisAlignment: CrossAxisAlignment.start,
               children: [
                 FTextField(
-                      control: FTextFieldControl.managed(controller: _wifiSsidController),
-       
-           
+                  control: FTextFieldControl.managed(
+                    controller: _wifiSsidController,
+                  ),
+
                   label: const Text('Nombre de Red (SSID)'),
-                  description: const Text('Introduce el nombre de tu red Wi-Fi.'),
+                  description: const Text(
+                    'Introduce el nombre de tu red Wi-Fi.',
+                  ),
                 ),
                 const SizedBox(height: 16),
                 FTextField(
-                  control: FTextFieldControl.managed(controller: _wifiPasswordController),
-       
+                  control: FTextFieldControl.managed(
+                    controller: _wifiPasswordController,
+                  ),
+
                   label: const Text('Contraseña'),
                   description: const Text('Introduce la clave de seguridad.'),
                   obscureText: true,
                 ),
                 const SizedBox(height: 24),
                 FButton(
-                  onPress: () {
+                  onPress: () async {
                     showFToast(
                       context: context,
-                      title: Text('Conectando a ${_wifiSsidController.text}...'),
+                      title: Text(
+                        'Conectando a ${_wifiSsidController.text}...',
+                      ),
                     );
+
+                    final dbService = ref.read(databaseServiceProvider);
+                    try {
+                      await dbService.replaceConfig({
+                        'wifi_ssid': _wifiSsidController.text,
+                        'wifi_password': _wifiPasswordController.text,
+                      });
+                    } catch (e) {
+                      ref.read(loggingServiceProvider).error('Error al guardar config Wi-Fi: $e');
+                    }
                   },
                   prefix: const Icon(FLucideIcons.wifi),
                   child: const Text('Conectar'),
@@ -573,51 +520,7 @@ class _DashboardScreenState extends ConsumerState<DashboardScreen> {
     );
   }
 
-  Widget _buildOdooTab(BuildContext context) {
-    final theme = FTheme.of(context);
-
-    return SingleChildScrollView(
-      child: Column(
-        crossAxisAlignment: CrossAxisAlignment.start,
-        children: [
-          Text(
-            'Servidor Odoo',
-            style: theme.typography.body.xl2.copyWith(fontWeight: FontWeight.bold),
-          ),
-          const SizedBox(height: 16),
-          const FDivider(),
-          const SizedBox(height: 16),
-
-          FCard(
-            title: const Text('Emparejar Base de Datos'),
-            child: Column(
-              crossAxisAlignment: CrossAxisAlignment.start,
-              children: [
-                FTextField(
-                  control: FTextFieldControl.managed(controller: _odooUrlController),
-       
-                  label: const Text('URL del Servidor Odoo'),
-                  description: const Text('Ingresa la dirección web de tu base de datos de Odoo.'),
-                ),
-                const SizedBox(height: 24),
-                FButton(
-                  onPress: () {
-                    showFToast(
-                      context: context,
-                      title: Text('Base de datos guardada: ${_odooUrlController.text}'),
-                    );
-                  },
-                  prefix: const Icon(FLucideIcons.database),
-                  child: const Text('Guardar y Vincular'),
-                ),
-              ],
-            ),
-          ),
-        ],
-      ),
-    );
-  }
-
+ 
   Widget _buildLogsTab(BuildContext context) {
     final theme = FTheme.of(context);
 
@@ -626,7 +529,9 @@ class _DashboardScreenState extends ConsumerState<DashboardScreen> {
       children: [
         Text(
           'Logs de Actividad',
-          style: theme.typography.body.xl2.copyWith(fontWeight: FontWeight.bold),
+          style: theme.typography.body.xl2.copyWith(
+            fontWeight: FontWeight.bold,
+          ),
         ),
         const SizedBox(height: 16),
         const FDivider(),
@@ -636,48 +541,50 @@ class _DashboardScreenState extends ConsumerState<DashboardScreen> {
           child: _logsLoading
               ? const Center(child: FCircularProgress())
               : (_logs.isEmpty
-                  ? const Center(
-                      child: Text(
-                        'No hay registros de logs de actividad.',
-                        style: TextStyle(fontStyle: FontStyle.italic),
-                      ),
-                    )
-                  : Container(
-                      width: double.infinity,
-                      padding: const EdgeInsets.all(8),
-                      decoration: BoxDecoration(
-                        color: theme.colors.muted,
-                        borderRadius: BorderRadius.circular(8),
-                      ),
-                      child: ListView.builder(
-                        physics: const ClampingScrollPhysics(),
-                        itemCount: _logs.length,
-                        itemBuilder: (context, index) {
-                          final logLine = _logs[index];
+                    ? const Center(
+                        child: Text(
+                          'No hay registros de logs de actividad.',
+                          style: TextStyle(fontStyle: FontStyle.italic),
+                        ),
+                      )
+                    : Container(
+                        width: double.infinity,
+                        padding: const EdgeInsets.all(8),
+                        decoration: BoxDecoration(
+                          color: theme.colors.muted,
+                          borderRadius: BorderRadius.circular(8),
+                        ),
+                        child: ListView.builder(
+                          physics: const ClampingScrollPhysics(),
+                          itemCount: _logs.length,
+                          itemBuilder: (context, index) {
+                            final logLine = _logs[index];
 
-                          Color textColor = theme.colors.foreground;
-                          if (logLine.contains('[ERROR]')) {
-                            textColor = theme.colors.destructive;
-                          } else if (logLine.contains('[WARNING]')) {
-                            textColor = Colors.amber;
-                          } else if (logLine.contains('[INFO]')) {
-                            textColor = Colors.green;
-                          }
+                            Color textColor = theme.colors.foreground;
+                            if (logLine.contains('[ERROR]')) {
+                              textColor = theme.colors.destructive;
+                            } else if (logLine.contains('[WARNING]')) {
+                              textColor = Colors.amber;
+                            } else if (logLine.contains('[INFO]')) {
+                              textColor = Colors.green;
+                            }
 
-                          return Padding(
-                            padding: const EdgeInsets.symmetric(vertical: 2.0),
-                            child: Text(
-                              logLine,
-                              style: TextStyle(
-                                color: textColor,
-                                fontFamily: 'Courier',
-                                fontSize: 12,
+                            return Padding(
+                              padding: const EdgeInsets.symmetric(
+                                vertical: 2.0,
                               ),
-                            ),
-                          );
-                        },
-                      ),
-                    )),
+                              child: Text(
+                                logLine,
+                                style: TextStyle(
+                                  color: textColor,
+                                  fontFamily: 'Courier',
+                                  fontSize: 12,
+                                ),
+                              ),
+                            );
+                          },
+                        ),
+                      )),
         ),
         const SizedBox(height: 16),
 
@@ -702,4 +609,3 @@ class _DashboardScreenState extends ConsumerState<DashboardScreen> {
     );
   }
 }
-

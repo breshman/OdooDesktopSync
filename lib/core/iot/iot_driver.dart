@@ -12,6 +12,9 @@ abstract class IoTDriver {
   String deviceType = '';
   String deviceManufacturer = '';
 
+  /// Device subtype, mainly used for printers ('receipt_printer', 'label_printer', 'office_printer').
+  String get deviceSubtype => '';
+
   Map<String, dynamic> data = {'value': '', 'result': ''};
   bool isStopped = false;
 

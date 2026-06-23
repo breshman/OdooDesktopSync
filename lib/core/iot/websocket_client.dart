@@ -15,6 +15,7 @@ class WebSocketClient {
   bool _shouldReconnect = true;
   int _lastMessageId = 0;
   Timer? _reconnectTimer;
+  String? _activeChannel;
 
   WebSocketClient({
     required this.serverUrl,
@@ -51,6 +52,14 @@ class WebSocketClient {
   Future<void> _connect() async {
     if (_isConnecting || _webSocket != null) return;
     _isConnecting = true;
+
+    // Retrieve channel dynamically from /iot/setup endpoint
+    final dynamicChannel = await _getWebSocketChannel();
+    if (dynamicChannel != null) {
+      _activeChannel = dynamicChannel;
+    } else {
+      loggingService.warning('Could not retrieve dynamic channel from server, falling back to constructor channel.');
+    }
 
     final wsUrl = _websocketUrl;
     loggingService.info('Connecting to Odoo WebSocket at $wsUrl');
@@ -90,20 +99,97 @@ class WebSocketClient {
     }
   }
 
+  Future<String?> _getWebSocketChannel() async {
+    final requestPath = '$serverUrl/iot/setup';
+    try {
+      // 1. Get local IP from network interfaces
+      String localIp = '127.0.0.1';
+      try {
+        final interfaces = await NetworkInterface.list(
+          includeLoopback: false,
+          type: InternetAddressType.IPv4,
+        );
+        if (interfaces.isNotEmpty && interfaces.first.addresses.isNotEmpty) {
+          localIp = interfaces.first.addresses.first.address;
+        }
+      } catch (_) {}
+
+      // 2. Build devices list from IoTManager
+      final devicesList = <String, Map<String, dynamic>>{};
+      
+      final activeDevices = IoTManager.instance.iotDevices;
+      activeDevices.forEach((key, device) {
+        devicesList[key] = {
+          'name': device.deviceName,
+          'type': device.deviceType,
+          'manufacturer': device.deviceManufacturer,
+          'connection': device.deviceConnection,
+          'subtype': device.deviceSubtype,
+        };
+      });
+
+      final unsupportedDevices = IoTManager.instance.unsupportedDevices;
+      unsupportedDevices.forEach((key, val) {
+        devicesList[key] = val;
+      });
+
+      final iotBox = {
+        'identifier': identifier,
+        'mac': '00:1A:2B:3C:4D:5E', // Use same stable MAC as on the dashboard screen
+        'ip': localIp,
+        'token': '',
+        'version': 'v26.05.30',
+        'l10n_eg_proxy_token': '',
+      };
+
+      final payload = {
+        'params': {
+          'iot_box': iotBox,
+          'devices': devicesList,
+        }
+      };
+
+      loggingService.info('Registering IoT box and devices at $requestPath');
+      final client = HttpClient();
+      final request = await client.postUrl(Uri.parse(requestPath)).timeout(const Duration(seconds: 5));
+      request.headers.contentType = ContentType.json;
+      request.write(jsonEncode(payload));
+      final response = await request.close();
+      
+      if (response.statusCode == 200) {
+        final responseBody = await response.transform(utf8.decoder).join();
+        final Map<String, dynamic> data = jsonDecode(responseBody);
+        if (data.containsKey('result')) {
+          final resultChannel = data['result']?.toString();
+          if (resultChannel != null && resultChannel.isNotEmpty) {
+            loggingService.info('Obtained WebSocket channel from server: $resultChannel');
+            return resultChannel;
+          }
+        }
+      } else {
+        loggingService.warning('Failed to register IoT Box: HTTP ${response.statusCode}');
+      }
+    } catch (e) {
+      loggingService.error('Error fetching WebSocket channel from /iot/setup: $e');
+    }
+    return null;
+  }
+
   void _subscribe() {
     if (_webSocket == null) return;
 
+    final activeChannel = _activeChannel ?? channel;
     final subscriptionMessage = {
       'event_name': 'subscribe',
       'data': {
-        'channels': [channel],
+        'channels': [activeChannel],
         'last': _lastMessageId,
         'identifier': identifier,
       }
     };
 
     _webSocket!.add(jsonEncode(subscriptionMessage));
-    loggingService.info('Sent subscription payload for channel $channel');
+    loggingService.info('Sent subscription payload for channel $activeChannel');
   }
 
   void _onMessage(dynamic rawData) {

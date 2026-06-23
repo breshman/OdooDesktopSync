@@ -8,7 +8,7 @@ import 'logging_service.dart';
 
 class SqliteDatabaseService implements DatabaseService {
   Database? _db;
-LoggingService _loggingService = LoggingService();
+  final LoggingService _loggingService = LoggingService();
   Database get db {
     if (_db == null) {
       throw StateError(
@@ -48,23 +48,15 @@ LoggingService _loggingService = LoggingService();
     try {
       _db = await openDatabase(
         dbPath,
-        version: 1,
+        version: 2,
         onCreate: (Database db, int version) async {
           print('Creando tablas SQLite...');
 
-          // Tabla api_config
+          // Tabla app_config (almacenamiento de claves y valores)
           await db.execute('''
-          CREATE TABLE api_config (
-            name TEXT PRIMARY KEY,
-            url TEXT
-          )
-        ''');
-
-          // Tabla path_config
-          await db.execute('''
-          CREATE TABLE path_config (
-            path TEXT PRIMARY KEY,
-            is_active INTEGER
+          CREATE TABLE app_config (
+            clave TEXT PRIMARY KEY,
+            valor TEXT
           )
         ''');
 
@@ -76,6 +68,19 @@ LoggingService _loggingService = LoggingService();
             create_at DATETIME DEFAULT CURRENT_TIMESTAMP
           )
         ''');
+        },
+        onUpgrade: (Database db, int oldVersion, int newVersion) async {
+          print('Actualizando base de datos SQLite de versión $oldVersion a $newVersion...');
+          if (oldVersion < 2) {
+            await db.execute('DROP TABLE IF EXISTS api_config');
+            await db.execute('DROP TABLE IF EXISTS path_config');
+            await db.execute('''
+              CREATE TABLE IF NOT EXISTS app_config (
+                clave TEXT PRIMARY KEY,
+                valor TEXT
+              )
+            ''');
+          }
         },
       );
     } catch (e) {
@@ -124,28 +129,23 @@ LoggingService _loggingService = LoggingService();
   }
 
   Future<void> _initDefaultValues() async {
-    final apiCount = Sqflite.firstIntValue(
-      await db.rawQuery('SELECT COUNT(*) FROM api_config'),
+    final count = Sqflite.firstIntValue(
+      await db.rawQuery('SELECT COUNT(*) FROM app_config'),
     );
-    if (apiCount == 0) {
-      await db.insert('api_config', {
-        'name': 'url producion',
-        'url': 'https://api.miempresa.com',
-      });
-      await db.insert('api_config', {
-        'name': 'url test',
-        'url': 'https://api.miempresa.com',
-      });
-      _loggingService.info('Configuraciones de API por defecto inicializadas.');
-    }
-
-    final pathCount = Sqflite.firstIntValue(
-      await db.rawQuery('SELECT COUNT(*) FROM path_config'),
-    );
-    if (pathCount == 0) {
-      await db.insert('path_config', {'path': 'C:/excel', 'is_active': 1});
-      await db.insert('path_config', {'path': 'C:/excel_2', 'is_active': 0});
-      _loggingService.info('Configuraciones de rutas de lectura por defecto inicializadas.');
+    if (count == 0) {
+      // await db.insert('app_config', {
+      //   'clave': 'odoo_url',
+      //   'valor': 'https://miempresa.odoo.com',
+      // });
+      // await db.insert('app_config', {
+      //   'clave': 'wifi_ssid',
+      //   'valor': '',
+      // });
+      // await db.insert('app_config', {
+      //   'clave': 'wifi_password',
+      //   'valor': '',
+      // });
+      _loggingService.info('Configuraciones de app_config por defecto inicializadas.');
     }
   }
 
@@ -173,34 +173,44 @@ LoggingService _loggingService = LoggingService();
 
   @override
   Future<Map<String, dynamic>> getConfig() async {
-    final apiRows = await db.query('api_config');
-    final pathRows = await db.query('path_config');
+    final rows = await db.query('app_config');
+    String odooUrl = 'https://miempresa.odoo.com';
+    String wifiSsid = '';
+    String wifiPassword = '';
 
-    final apiList = apiRows
-        .map((row) => {'url': row['url'], 'name': row['name']})
-        .toList();
+    for (final row in rows) {
+      final clave = row['clave']?.toString();
+      final valor = row['valor']?.toString() ?? '';
+      if (clave == 'odoo_url') {
+        odooUrl = valor;
+      } else if (clave == 'wifi_ssid') {
+        wifiSsid = valor;
+      } else if (clave == 'wifi_password') {
+        wifiPassword = valor;
+      }
+    }
 
-    final pathList = pathRows
-        .map((row) => {'path': row['path'], 'is_active': row['is_active'] == 1})
-        .toList();
-
-    return {'api': apiList, 'config_paths': pathList};
+    return {
+      'api': [
+        {'name': 'odoo', 'url': odooUrl}
+      ],
+      'wifi_ssid': wifiSsid,
+      'wifi_password': wifiPassword,
+      'config_paths': <Map<String, dynamic>>[],
+    };
   }
 
   @override
   Future<void> saveApiConfig(String name, String url) async {
-    await db.insert('api_config', {
-      'name': name,
-      'url': url,
+    await db.insert('app_config', {
+      'clave': 'odoo_url',
+      'valor': url,
     }, conflictAlgorithm: ConflictAlgorithm.replace);
   }
 
   @override
   Future<void> savePathConfig(String path, bool isActive) async {
-    await db.insert('path_config', {
-      'path': path,
-      'is_active': isActive ? 1 : 0,
-    }, conflictAlgorithm: ConflictAlgorithm.replace);
+    // No-op or we can save it to app_config if needed.
   }
 
   @override
@@ -208,33 +218,28 @@ LoggingService _loggingService = LoggingService();
     Map<String, dynamic> newConfig,
   ) async {
     await db.transaction((txn) async {
-      // 1. Vaciar ambas tablas por completo
-      await txn.delete('api_config');
-      await txn.delete('path_config');
-
-      // 2. Insertar nuevos registros en api_config
       if (newConfig['api'] != null && newConfig['api'] is List) {
         for (var item in newConfig['api']) {
           if (item is Map) {
-            await txn.insert('api_config', {
-              'name': item['name']?.toString() ?? '',
-              'url': item['url']?.toString() ?? '',
-            });
+            await txn.insert('app_config', {
+              'clave': 'odoo_url',
+              'valor': item['url']?.toString() ?? '',
+            }, conflictAlgorithm: ConflictAlgorithm.replace);
+            break;
           }
         }
       }
-
-      // 3. Insertar nuevos registros en path_config
-      if (newConfig['config_paths'] != null &&
-          newConfig['config_paths'] is List) {
-        for (var item in newConfig['config_paths']) {
-          if (item is Map) {
-            await txn.insert('path_config', {
-              'path': item['path']?.toString() ?? '',
-              'is_active': (item['is_active'] == true) ? 1 : 0,
-            });
-          }
-        }
+      if (newConfig['wifi_ssid'] != null) {
+        await txn.insert('app_config', {
+          'clave': 'wifi_ssid',
+          'valor': newConfig['wifi_ssid'].toString(),
+        }, conflictAlgorithm: ConflictAlgorithm.replace);
+      }
+      if (newConfig['wifi_password'] != null) {
+        await txn.insert('app_config', {
+          'clave': 'wifi_password',
+          'valor': newConfig['wifi_password'].toString(),
+        }, conflictAlgorithm: ConflictAlgorithm.replace);
       }
     });
 
