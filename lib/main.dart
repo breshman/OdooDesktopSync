@@ -1,4 +1,5 @@
 import 'package:flutter/material.dart';
+import 'package:forui/forui.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:tray_manager/tray_manager.dart';
 import 'package:window_manager/window_manager.dart';
@@ -99,19 +100,17 @@ class _MyAppState extends ConsumerState<MyApp> with TrayListener, WindowListener
 
   @override
   Widget build(BuildContext context) {
+    final theme = FThemes.neutral.light.desktop;
+
     return MaterialApp(
       debugShowCheckedModeBanner: false,
       title: 'Odoo Desktop Sync',
-      theme: ThemeData(
-        brightness: Brightness.dark,
-        primaryColor: const Color(0xFF6366F1), // Indigo
-        scaffoldBackgroundColor: const Color(0xFF0B0F19), // Dark Slate
-        colorScheme: const ColorScheme.dark(
-          primary: Color(0xFF6366F1),
-          secondary: Color(0xFF10B981),
-          surface: Color(0xFF1E293B),
-        ),
-        useMaterial3: true,
+      supportedLocales: FLocalizations.supportedLocales,
+      localizationsDelegates: const [...FLocalizations.localizationsDelegates],
+      theme: theme.toApproximateMaterialTheme(),
+      builder: (context, child) => FTheme(
+        data: theme,
+        child: FToaster(child: FTooltipGroup(child: child!)),
       ),
       home: _initializing
           ? _LoadingScreen(errorMessage: _initializationError)
@@ -179,27 +178,26 @@ class _MyAppState extends ConsumerState<MyApp> with TrayListener, WindowListener
 }
 
 class _LoadingScreen extends StatelessWidget {
-  const _LoadingScreen({this.errorMessage, super.key});
+  const _LoadingScreen({this.errorMessage});
 
   final String? errorMessage;
 
   @override
   Widget build(BuildContext context) {
-    return Scaffold(
-      backgroundColor: const Color(0xFF0B0F19),
-      body: Center(
+    return FScaffold(
+      child: Center(
         child: Padding(
           padding: const EdgeInsets.symmetric(horizontal: 24.0),
           child: Column(
             mainAxisSize: MainAxisSize.min,
             children: [
-              const CircularProgressIndicator(color: Color(0xFF6366F1)),
+              const FCircularProgress(),
               const SizedBox(height: 24),
-              const Text(
+              Text(
                 'Iniciando aplicación...',
                 textAlign: TextAlign.center,
                 style: TextStyle(
-                  color: Colors.white,
+                  color: context.theme.colors.foreground,
                   fontSize: 18,
                   fontWeight: FontWeight.bold,
                 ),
@@ -209,7 +207,10 @@ class _LoadingScreen extends StatelessWidget {
                 errorMessage ??
                     'Por favor espera mientras se inicializan los servicios.',
                 textAlign: TextAlign.center,
-                style: const TextStyle(color: Color(0xFF94A3B8), fontSize: 14),
+                style: TextStyle(
+                  color: context.theme.colors.mutedForeground,
+                  fontSize: 14,
+                ),
               ),
             ],
           ),
@@ -220,31 +221,30 @@ class _LoadingScreen extends StatelessWidget {
 }
 
 class _ErrorScreen extends StatelessWidget {
-  const _ErrorScreen({required this.errorMessage, super.key});
+  const _ErrorScreen({required this.errorMessage});
 
   final String? errorMessage;
 
   @override
   Widget build(BuildContext context) {
-    return Scaffold(
-      backgroundColor: const Color(0xFF0B0F19),
-      body: Center(
+    return FScaffold(
+      child: Center(
         child: Padding(
           padding: const EdgeInsets.symmetric(horizontal: 24.0),
           child: Column(
             mainAxisSize: MainAxisSize.min,
             children: [
-              const Icon(
+              Icon(
                 Icons.error_outline,
                 size: 72,
-                color: Colors.redAccent,
+                color: context.theme.colors.destructive,
               ),
               const SizedBox(height: 24),
-              const Text(
+              Text(
                 'No se pudo inicializar la aplicación',
                 textAlign: TextAlign.center,
                 style: TextStyle(
-                  color: Colors.white,
+                  color: context.theme.colors.foreground,
                   fontSize: 20,
                   fontWeight: FontWeight.bold,
                 ),
@@ -253,34 +253,25 @@ class _ErrorScreen extends StatelessWidget {
               Text(
                 errorMessage ?? 'Verifica permisos y vuelve a intentar.',
                 textAlign: TextAlign.center,
-                style: const TextStyle(
-                  color: Color(0xFF94A3B8),
+                style: TextStyle(
+                  color: context.theme.colors.mutedForeground,
                   fontSize: 14,
                 ),
               ),
               const SizedBox(height: 24),
-              const Text(
+              Text(
                 'Reinicia la aplicación después de corregir el problema.',
                 textAlign: TextAlign.center,
                 style: TextStyle(
-                  color: Color(0xFF94A3B8),
+                  color: context.theme.colors.mutedForeground.withOpacity(0.7),
                   fontSize: 14,
                 ),
               ),
               const SizedBox(height: 24),
-              ElevatedButton.icon(
-                onPressed: () => showLogsDialog(context),
-                icon: const Icon(Icons.terminal_rounded),
-                label: const Text('Ver Logs de Error'),
-                style: ElevatedButton.styleFrom(
-                  backgroundColor: const Color(0xFF1E293B),
-                  foregroundColor: Colors.white,
-                  padding: const EdgeInsets.symmetric(horizontal: 20, vertical: 12),
-                  shape: RoundedRectangleBorder(
-                    borderRadius: BorderRadius.circular(10),
-                    side: BorderSide(color: Colors.white.withOpacity(0.1)),
-                  ),
-                ),
+              FButton(
+                onPress: () => showLogsDialog(context),
+                prefix: const Icon(FLucideIcons.terminal),
+                child: const Text('Ver Logs de Error'),
               ),
             ],
           ),

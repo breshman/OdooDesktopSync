@@ -1,11 +1,21 @@
 import 'dart:io';
 import 'package:flutter/material.dart';
+import 'package:forui/forui.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import '../../core/providers/dependency_providers.dart';
 import '../../core/iot/iot_manager.dart';
 import '../../core/iot/drivers/scale_driver.dart';
 import '../../core/iot/drivers/printer_driver.dart';
-import '../widgets/logs_dialog.dart';
+import '../../core/services/logging_service.dart';
+import '../widgets/status_badge.dart';
+
+enum DashboardTab {
+  overview,
+  devices,
+  wifi,
+  odoo,
+  logs,
+}
 
 class DashboardScreen extends ConsumerStatefulWidget {
   const DashboardScreen({super.key});
@@ -15,587 +25,681 @@ class DashboardScreen extends ConsumerStatefulWidget {
 }
 
 class _DashboardScreenState extends ConsumerState<DashboardScreen> {
+  DashboardTab _currentTab = DashboardTab.overview;
   bool _showAdvanced = false;
+  
+  // Log viewer state
+  List<String> _logs = [];
+  bool _logsLoading = true;
+
+  // Controllers for WiFi and Odoo
+  late TextEditingController _wifiSsidController;
+  late TextEditingController _wifiPasswordController;
+  late TextEditingController _odooUrlController;
+
+  @override
+  void initState() {
+    super.initState();
+    _wifiSsidController = TextEditingController();
+    _wifiPasswordController = TextEditingController();
+    _odooUrlController = TextEditingController(text: 'https://miempresa.odoo.com');
+    _loadLogs();
+  }
+
+  @override
+  void dispose() {
+    _wifiSsidController.dispose();
+    _wifiPasswordController.dispose();
+    _odooUrlController.dispose();
+    super.dispose();
+  }
+
+  Future<void> _loadLogs() async {
+    setState(() {
+      _logsLoading = true;
+    });
+    final fetched = await LoggingService().readLastLogs(limit: 250);
+    if (mounted) {
+      setState(() {
+        _logs = fetched;
+        _logsLoading = false;
+      });
+    }
+  }
+
+  Future<void> _clearLogs() async {
+    final confirm = await showFDialog<bool>(
+      context: context,
+      builder: (context, s, a) => FDialog(
+        title: const Text('¿Limpiar logs?'),
+        body: const Text('Esto vaciará el historial de logs de sincronización en el disco de manera permanente.'),
+        actions: [
+          FButton(
+            variant: FButtonVariant.outline,
+            onPress: () => Navigator.of(context).pop(false),
+            child: const Text('Cancelar'),
+          ),
+          FButton(
+            variant: FButtonVariant.destructive,
+            onPress: () => Navigator.of(context).pop(true),
+            child: const Text('Limpiar'),
+          ),
+        ],
+      ),
+    );
+
+    if (confirm == true) {
+      await LoggingService().clearLogs();
+      await LoggingService().info('Historial de logs limpiado por el usuario.');
+      _loadLogs();
+    }
+  }
 
   @override
   Widget build(BuildContext context) {
-    // Listen to changes in the IoT manager registry
     final iotState = ref.watch(iotStateProvider);
     final iotManager = ref.read(iotManagerProvider);
-    final status = ref.watch(serverStatusProvider);
-    final isActive = status == ServerStatus.active;
     final apiServer = ref.read(apiServerProvider);
     final windowTrayService = ref.read(windowTrayServiceProvider);
+    final theme = FTheme.of(context);
 
+    return FScaffold(
+      sidebar: FSidebar(
+        header: Padding(
+          padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 16),
+          child: Column(
+            crossAxisAlignment: CrossAxisAlignment.start,
+            children: [
+              Text(
+                'IoT Box',
+                style: theme.typography.body.xl.copyWith(
+                  fontWeight: FontWeight.bold,
+                  color: theme.colors.foreground,
+                ),
+              ),
+              const SizedBox(height: 4),
+              Text(
+                'Desktop Sync',
+                style: theme.typography.body.xs.copyWith(
+                  color: theme.colors.mutedForeground,
+                ),
+              ),
+            ],
+          ),
+        ),
+        footer: Padding(
+          padding: const EdgeInsets.all(16),
+          child: Column(
+            mainAxisSize: MainAxisSize.min,
+            crossAxisAlignment: CrossAxisAlignment.stretch,
+            children: [
+              const Center(child: StatusBadge()),
+              const SizedBox(height: 12),
+              FButton(
+                variant: FButtonVariant.destructive,
+                onPress: () async {
+                  ref
+                      .read(serverStatusProvider.notifier)
+                      .setStatus(ServerStatus.inactive);
+                  await apiServer.stop();
+                  await windowTrayService.closeApp();
+                },
+                prefix: const Icon(FLucideIcons.power),
+                child: const Text('Apagar Servidor'),
+              ),
+            ],
+          ),
+        ),
+        children: [
+          FSidebarGroup(
+            label: const Text('Información'),
+            children: [
+              FSidebarItem(
+                icon: const Icon(FLucideIcons.layoutDashboard),
+                label: const Text('Resumen'),
+                selected: _currentTab == DashboardTab.overview,
+                onPress: () => setState(() => _currentTab = DashboardTab.overview),
+              ),
+              FSidebarItem(
+                icon: const Icon(FLucideIcons.terminal),
+                label: const Text('Logs de Actividad'),
+                selected: _currentTab == DashboardTab.logs,
+                onPress: () {
+                  setState(() => _currentTab = DashboardTab.logs);
+                  _loadLogs();
+                },
+              ),
+            ],
+          ),
+          FSidebarGroup(
+            label: const Text('Configuración'),
+            children: [
+              FSidebarItem(
+                icon: const Icon(FLucideIcons.cpu),
+                label: const Text('Dispositivos'),
+                selected: _currentTab == DashboardTab.devices,
+                onPress: () => setState(() => _currentTab = DashboardTab.devices),
+              ),
+              FSidebarItem(
+                icon: const Icon(FLucideIcons.wifi),
+                label: const Text('Red Wi-Fi'),
+                selected: _currentTab == DashboardTab.wifi,
+                onPress: () => setState(() => _currentTab = DashboardTab.wifi),
+              ),
+              FSidebarItem(
+                icon: const Icon(FLucideIcons.database),
+                label: const Text('Servidor Odoo'),
+                selected: _currentTab == DashboardTab.odoo,
+                onPress: () => setState(() => _currentTab = DashboardTab.odoo),
+              ),
+            ],
+          ),
+        ],
+      ),
+      child: Padding(
+        padding: const EdgeInsets.all(24.0),
+        child: _buildBody(context, iotState, iotManager),
+      ),
+    );
+  }
+
+  Widget _buildBody(BuildContext context, IoTState iotState, IoTManager iotManager) {
+    switch (_currentTab) {
+      case DashboardTab.overview:
+        return _buildOverviewTab(context, iotState);
+      case DashboardTab.devices:
+        return _buildDevicesTab(context, iotState, iotManager);
+      case DashboardTab.wifi:
+        return _buildWifiTab(context);
+      case DashboardTab.odoo:
+        return _buildOdooTab(context);
+      case DashboardTab.logs:
+        return _buildLogsTab(context);
+    }
+  }
+
+  Widget _buildOverviewTab(BuildContext context, IoTState iotState) {
+    final theme = FTheme.of(context);
+ 
     final numDevices = iotState.iotDevices.length + iotState.unsupportedDevices.length;
 
-    return Scaffold(
-      backgroundColor: const Color(0xFFF3F4F6), // Odoo background gray (#F1F1F1 / #F3F4F6)
-      body: SafeArea(
-        child: Center(
-          child: SingleChildScrollView(
-            padding: const EdgeInsets.symmetric(horizontal: 16.0, vertical: 24.0),
-            child: ConstrainedBox(
-              constraints: const BoxConstraints(maxWidth: 600),
-              child: Card(
-                color: Colors.white,
-                elevation: 4,
-                shadowColor: Colors.black.withOpacity(0.08),
-                shape: RoundedRectangleBorder(
-                  borderRadius: BorderRadius.circular(8),
-                ),
-                child: Padding(
-                  padding: const EdgeInsets.all(24.0),
-                  child: Column(
-                    crossAxisAlignment: CrossAxisAlignment.start,
-                    mainAxisSize: MainAxisSize.min,
-                    children: [
-                      // Header Row
-                      Row(
-                        mainAxisAlignment: MainAxisAlignment.spaceBetween,
-                        children: [
-                          const SizedBox(width: 80), // spacer to center the title
-                          const Expanded(
-                            child: Text(
-                              'IoT Box',
-                              textAlign: TextAlign.center,
-                              style: TextStyle(
-                                fontSize: 24,
-                                fontWeight: FontWeight.bold,
-                                color: Color(0xFF111827), // Dark Gray
-                              ),
-                            ),
-                          ),
-                          Row(
-                            mainAxisSize: MainAxisSize.min,
-                            children: [
-                              // Advanced Cog Button
-                              IconButton(
-                                icon: Icon(
-                                  _showAdvanced ? Icons.settings : Icons.settings_suggest,
-                                  color: const Color(0xFF714B67), // Odoo Purple
-                                ),
-                                tooltip: 'Toggle Advanced Settings',
-                                onPressed: () {
-                                  setState(() {
-                                    _showAdvanced = !_showAdvanced;
-                                  });
-                                },
-                              ),
-                              // Shutdown Power Button
-                              IconButton(
-                                icon: const Icon(
-                                  Icons.power_settings_new,
-                                  color: Colors.redAccent,
-                                ),
-                                tooltip: 'Shutdown Server',
-                                onPressed: () async {
-                                  ref
-                                      .read(serverStatusProvider.notifier)
-                                      .setStatus(ServerStatus.inactive);
-                                  await apiServer.stop();
-                                  await windowTrayService.closeApp();
-                                },
-                              ),
-                            ],
-                          ),
-                        ],
-                      ),
-                      const SizedBox(height: 16),
-
-                      // Missing Certificate Warning (Yellow Alert)
-                      Container(
-                        width: double.infinity,
-                        padding: const EdgeInsets.all(16),
-                        margin: const EdgeInsets.only(bottom: 20),
-                        decoration: BoxDecoration(
-                          color: const Color(0xFFFEF3C7), // Amber 100
-                          borderRadius: BorderRadius.circular(6),
-                          border: Border.all(color: const Color(0xFFFDE68A)), // Amber 200
-                        ),
-                        child: Column(
-                          crossAxisAlignment: CrossAxisAlignment.start,
-                          children: const [
-                            Text(
-                              "This IoT Box doesn't have a valid certificate.",
-                              style: TextStyle(
-                                fontWeight: FontWeight.bold,
-                                color: Color(0xFF92400E), // Amber 800
-                                fontSize: 13,
-                              ),
-                            ),
-                            SizedBox(height: 4),
-                            Text(
-                              "The IoT Box should get a certificate automatically when paired with a database. If it doesn't, try to restart it.",
-                              style: TextStyle(
-                                color: Color(0xFFB45309), // Amber 700
-                                fontSize: 12,
-                              ),
-                            ),
-                          ],
-                        ),
-                      ),
-
-                      // List Rows (SingleData equivalents)
-                      SingleDataRow(
-                        name: 'Identifier',
-                        value: 'iot_box_desktop_sync',
-                        icon: Icons.badge_outlined,
-                      ),
-
-                      if (_showAdvanced) ...[
-                        SingleDataRow(
-                          name: 'Mac Address',
-                          value: '00:1A:2B:3C:4D:5E',
-                          icon: Icons.dns_outlined,
-                        ),
-                        SingleDataRow(
-                          name: 'Version',
-                          value: 'v26.05.30',
-                          icon: Icons.memory_outlined,
-                          trailingButton: TextButton(
-                            onPressed: () {
-                              ScaffoldMessenger.of(context).showSnackBar(
-                                const SnackBar(content: Text('Checking for updates... All packages up to date.')),
-                              );
-                            },
-                            child: const Text('Update', style: TextStyle(color: Color(0xFF714B67))),
-                          ),
-                        ),
-                        SingleDataRow(
-                          name: 'IP Address',
-                          value: '197.168.1.104',
-                          icon: Icons.public_outlined,
-                        ),
-                      ],
-
-                      SingleDataRow(
-                        name: 'Internet Status',
-                        value: Platform.isWindows ? 'Ethernet Connection' : 'Wi-Fi: Local_Network',
-                        icon: Icons.wifi_outlined,
-                        trailingButton: TextButton(
-                          onPressed: () => _showWiFiConfigDialog(context),
-                          child: const Text('Configure', style: TextStyle(color: Color(0xFF714B67))),
-                        ),
-                      ),
-
-                      SingleDataRow(
-                        name: 'Odoo Database Connected',
-                        value: isActive ? 'Connected (http://localhost:8089)' : 'Not Connected',
-                        icon: Icons.link_outlined,
-                        trailingButton: TextButton(
-                          onPressed: () => _showServerConfigDialog(context),
-                          child: const Text('Configure', style: TextStyle(color: Color(0xFF714B67))),
-                        ),
-                      ),
-
-                      SingleDataRow(
-                        name: 'Devices',
-                        value: '$numDevices connected devices',
-                        icon: Icons.power_outlined,
-                        trailingButton: TextButton(
-                          onPressed: () => _showDevicesDialog(context, iotState, iotManager),
-                          child: const Text('Configure', style: TextStyle(color: Color(0xFF714B67))),
-                        ),
-                      ),
-
-                      const SizedBox(height: 24),
-                      const Divider(color: Color(0xFFD1D5DB)),
-                      const SizedBox(height: 16),
-
-                      // Footer Action Buttons (styled in Odoo Purple and Gray)
-                      Wrap(
-                        spacing: 12,
-                        runSpacing: 12,
-                        alignment: WrapAlignment.center,
-                        children: [
-                          _buildOdooButton(
-                            label: 'Status Display',
-                            onPressed: () {
-                              ScaffoldMessenger.of(context).showSnackBar(
-                                const SnackBar(content: Text('Status Display dashboard opened.')),
-                              );
-                            },
-                          ),
-                          _buildOdooButton(
-                            label: 'Printer Server',
-                            onPressed: () {
-                              ScaffoldMessenger.of(context).showSnackBar(
-                                const SnackBar(content: Text('Printer CUPS interface opened.')),
-                              );
-                            },
-                          ),
-                          if (_showAdvanced) ...[
-                            _buildOdooButton(
-                              label: 'Remote Debug',
-                              onPressed: () {
-                                ScaffoldMessenger.of(context).showSnackBar(
-                                  const SnackBar(content: Text('Toggling remote debug tunnel...')),
-                                );
-                              },
-                            ),
-                            _buildOdooButton(
-                              label: 'Configure Handlers',
-                              onPressed: () {
-                                ScaffoldMessenger.of(context).showSnackBar(
-                                  const SnackBar(content: Text('Re-downloading IoT box handlers.')),
-                                );
-                              },
-                            ),
-                          ],
-                          _buildOdooButton(
-                            label: 'View Logs',
-                            onPressed: () => showLogsDialog(context),
-                          ),
-                        ],
-                      ),
-
-                      const SizedBox(height: 20),
-                      Row(
-                        mainAxisAlignment: MainAxisAlignment.center,
-                        children: [
-                          TextButton(
-                            onPressed: () {},
-                            child: const Text('Help', style: TextStyle(color: Color(0xFF714B67), fontSize: 13)),
-                          ),
-                          const Text('•', style: TextStyle(color: Colors.grey)),
-                          TextButton(
-                            onPressed: () {},
-                            child: const Text('Documentation', style: TextStyle(color: Color(0xFF714B67), fontSize: 13)),
-                          ),
-                        ],
-                      ),
-                    ],
-                  ),
-                ),
-              ),
-            ),
-          ),
-        ),
-      ),
-    );
-  }
-
-  Widget _buildOdooButton({required String label, required VoidCallback onPressed}) {
-    return ElevatedButton(
-      onPressed: onPressed,
-      style: ElevatedButton.styleFrom(
-        backgroundColor: const Color(0xFF714B67), // Odoo Purple
-        foregroundColor: Colors.white,
-        padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 10),
-        elevation: 0,
-        shape: RoundedRectangleBorder(
-          borderRadius: BorderRadius.circular(4),
-        ),
-      ),
-      child: Text(
-        label,
-        style: const TextStyle(fontSize: 13, fontWeight: FontWeight.bold),
-      ),
-    );
-  }
-
-  void _showDevicesDialog(BuildContext context, IoTState iotState, IoTManager iotManager) {
-    showDialog(
-      context: context,
-      builder: (context) {
-        return StatefulBuilder(
-          builder: (context, setDialogState) {
-            final devicesList = iotState.iotDevices.values.toList();
-            final unsupportedList = iotState.unsupportedDevices.values.toList();
-
-            return AlertDialog(
-              title: const Text('Devices Connected'),
-              content: SizedBox(
-                width: double.maxFinite,
-                child: devicesList.isEmpty && unsupportedList.isEmpty
-                    ? const Padding(
-                        padding: EdgeInsets.all(16.0),
-                        child: Text('No devices connected.', textAlign: TextAlign.center),
-                      )
-                    : ListView(
-                        shrinkWrap: true,
-                        children: [
-                          if (devicesList.isNotEmpty) ...[
-                            const Padding(
-                              padding: EdgeInsets.symmetric(vertical: 8.0),
-                              child: Text('Active System Drivers', style: TextStyle(fontWeight: FontWeight.bold)),
-                            ),
-                            ...devicesList.map((device) {
-                              final isScale = device is ScaleDriver;
-                              final isPrinter = device is PrinterDriver;
-
-                              return Card(
-                                margin: const EdgeInsets.symmetric(vertical: 6.0),
-                                child: Padding(
-                                  padding: const EdgeInsets.all(12.0),
-                                  child: Column(
-                                    crossAxisAlignment: CrossAxisAlignment.start,
-                                    children: [
-                                      Row(
-                                        mainAxisAlignment: MainAxisAlignment.spaceBetween,
-                                        children: [
-                                          Text(
-                                            device.deviceName,
-                                            style: const TextStyle(fontWeight: FontWeight.bold, fontSize: 14),
-                                          ),
-                                          Container(
-                                            padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 4),
-                                            decoration: BoxDecoration(
-                                              color: const Color(0xFF714B67).withOpacity(0.1),
-                                              borderRadius: BorderRadius.circular(4),
-                                            ),
-                                            child: Text(
-                                              device.deviceType.toUpperCase(),
-                                              style: const TextStyle(
-                                                color: Color(0xFF714B67),
-                                                fontWeight: FontWeight.bold,
-                                                fontSize: 10,
-                                              ),
-                                            ),
-                                          ),
-                                        ],
-                                      ),
-                                      const SizedBox(height: 4),
-                                      Text('Identifier: ${device.identifier}', style: const TextStyle(fontSize: 12, color: Colors.grey)),
-                                      Text('Connection: ${device.deviceConnection}', style: const TextStyle(fontSize: 12, color: Colors.grey)),
-                                      
-                                      if (isScale) ...[
-                                        const SizedBox(height: 8),
-                                        Row(
-                                          mainAxisAlignment: MainAxisAlignment.spaceBetween,
-                                          children: [
-                                            Text(
-                                              'Simulated Weight: ${device.data['value']} kg',
-                                              style: const TextStyle(fontWeight: FontWeight.bold, color: Colors.green),
-                                            ),
-                                            Row(
-                                              children: [
-                                                TextButton(
-                                                  onPressed: () {
-                                                    setDialogState(() {
-                                                      device.setSimulatedWeight(0.0);
-                                                    });
-                                                  },
-                                                  child: const Text('Zero'),
-                                                ),
-                                                TextButton(
-                                                  onPressed: () {
-                                                    setDialogState(() {
-                                                      final current = (device.data['value'] as num).toDouble();
-                                                      device.setSimulatedWeight(double.parse((current + 0.500).toStringAsFixed(3)));
-                                                    });
-                                                  },
-                                                  child: const Text('+0.5kg'),
-                                                ),
-                                              ],
-                                            ),
-                                          ],
-                                        ),
-                                      ],
-
-                                      if (isPrinter) ...[
-                                        const SizedBox(height: 8),
-                                        ElevatedButton.icon(
-                                          onPressed: () {
-                                            device.action({
-                                              'action': 'print_receipt',
-                                              'receipt': '================================\n'
-                                                  '        ODOO DESKTOP SYNC       \n'
-                                                  '        TEST TICKET SUCCESS      \n'
-                                                  '================================\n'
-                                                  'System device prints successfully.\n'
-                                                  'Date: ${DateTime.now().toLocal()}\n'
-                                                  '================================\n'
-                                            });
-                                            ScaffoldMessenger.of(context).showSnackBar(
-                                              const SnackBar(content: Text('Test print task dispatched.')),
-                                            );
-                                          },
-                                          icon: const Icon(Icons.print, size: 16),
-                                          label: const Text('Print Test Receipt', style: TextStyle(fontSize: 12)),
-                                          style: ElevatedButton.styleFrom(
-                                            backgroundColor: const Color(0xFF714B67),
-                                            foregroundColor: Colors.white,
-                                            elevation: 0,
-                                            padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 6),
-                                          ),
-                                        ),
-                                      ],
-                                    ],
-                                  ),
-                                ),
-                              );
-                            }).toList(),
-                          ],
-                          if (unsupportedList.isNotEmpty) ...[
-                            const Padding(
-                              padding: EdgeInsets.symmetric(vertical: 8.0),
-                              child: Text('Unsupported System Devices', style: TextStyle(fontWeight: FontWeight.bold, color: Colors.red)),
-                            ),
-                            ...unsupportedList.map((device) {
-                              return ListTile(
-                                leading: const Icon(Icons.warning, color: Colors.amber),
-                                title: Text(device['name'] ?? 'Unknown device'),
-                                subtitle: Text('Identifier: ${device['identifier']} (Port: ${device['connection']})'),
-                              );
-                            }).toList(),
-                          ],
-                        ],
-                      ),
-              ),
-              actions: [
-                TextButton(
-                  onPressed: () => Navigator.pop(context),
-                  child: const Text('Close', style: TextStyle(color: Color(0xFF714B67))),
-                ),
-              ],
-            );
-          },
-        );
-      },
-    );
-  }
-
-  void _showWiFiConfigDialog(BuildContext context) {
-    showDialog(
-      context: context,
-      builder: (context) {
-        return AlertDialog(
-          title: const Text('Wi-Fi Configuration'),
-          content: Column(
-            mainAxisSize: MainAxisSize.min,
-            children: const [
-              TextField(
-                decoration: InputDecoration(
-                  labelText: 'SSID / Network Name',
-                  border: OutlineInputBorder(),
-                ),
-              ),
-              SizedBox(height: 12),
-              TextField(
-                obscureText: true,
-                decoration: InputDecoration(
-                  labelText: 'Password',
-                  border: OutlineInputBorder(),
-                ),
-              ),
-            ],
-          ),
-          actions: [
-            TextButton(
-              onPressed: () => Navigator.pop(context),
-              child: const Text('Cancel', style: TextStyle(color: Colors.grey)),
-            ),
-            ElevatedButton(
-              onPressed: () => Navigator.pop(context),
-              style: ElevatedButton.styleFrom(backgroundColor: const Color(0xFF714B67), foregroundColor: Colors.white),
-              child: const Text('Connect'),
-            ),
-          ],
-        );
-      },
-    );
-  }
-
-  void _showServerConfigDialog(BuildContext context) {
-    final serverController = TextEditingController(text: 'https://miempresa.odoo.com');
-    showDialog(
-      context: context,
-      builder: (context) {
-        return AlertDialog(
-          title: const Text('Configure Odoo Database'),
-          content: Column(
-            mainAxisSize: MainAxisSize.min,
-            children: [
-              TextField(
-                controller: serverController,
-                decoration: const InputDecoration(
-                  labelText: 'Database / Server URL',
-                  border: OutlineInputBorder(),
-                ),
-              ),
-            ],
-          ),
-          actions: [
-            TextButton(
-              onPressed: () => Navigator.pop(context),
-              child: const Text('Cancel', style: TextStyle(color: Colors.grey)),
-            ),
-            ElevatedButton(
-              onPressed: () {
-                // In production, we would save this to SQLite config
-                Navigator.pop(context);
-                ScaffoldMessenger.of(context).showSnackBar(
-                  SnackBar(content: Text('Database URL updated to: ${serverController.text}')),
-                );
-              },
-              style: ElevatedButton.styleFrom(backgroundColor: const Color(0xFF714B67), foregroundColor: Colors.white),
-              child: const Text('Save & Pair'),
-            ),
-          ],
-        );
-      },
-    );
-  }
-}
-
-class SingleDataRow extends StatelessWidget {
-  final String name;
-  final String value;
-  final IconData icon;
-  final Widget? trailingButton;
-
-  const SingleDataRow({
-    required this.name,
-    required this.value,
-    required this.icon,
-    this.trailingButton,
-    super.key,
-  });
-
-  @override
-  Widget build(BuildContext context) {
-    return Padding(
-      padding: const EdgeInsets.symmetric(vertical: 12.0),
+    return SingleChildScrollView(
       child: Column(
+        crossAxisAlignment: CrossAxisAlignment.start,
         children: [
           Row(
-            crossAxisAlignment: CrossAxisAlignment.center,
+            mainAxisAlignment: MainAxisAlignment.spaceBetween,
             children: [
-              Icon(icon, color: const Color(0xFF714B67), size: 22),
-              const SizedBox(width: 16),
-              Expanded(
-                child: Column(
-                  crossAxisAlignment: CrossAxisAlignment.start,
-                  children: [
-                    Text(
-                      name,
-                      style: const TextStyle(
-                        color: Color(0xFF6B7280), // Gray 500
-                        fontSize: 12,
-                        fontWeight: FontWeight.w500,
-                      ),
-                    ),
-                    const SizedBox(height: 2),
-                    Text(
-                      value,
-                      style: const TextStyle(
-                        color: Color(0xFF111827), // Gray 900
-                        fontSize: 14,
-                        fontWeight: FontWeight.w600,
-                      ),
-                    ),
-                  ],
-                ),
+              Text(
+                'Resumen del Sistema',
+                style: theme.typography.body.lg.copyWith(fontWeight: FontWeight.bold),
               ),
-              if (trailingButton != null) trailingButton!,
+              FButton(
+                variant: FButtonVariant.outline,
+                onPress: () => setState(() => _showAdvanced = !_showAdvanced),
+                prefix: Icon(_showAdvanced ? FLucideIcons.settings : FLucideIcons.sliders),
+                child: Text(_showAdvanced ? 'Ocultar Avanzado' : 'Mostrar Avanzado'),
+              ),
             ],
           ),
-          const SizedBox(height: 12),
-          const Divider(height: 1, color: Color(0xFFE5E7EB)),
+          const SizedBox(height: 16),
+          const FDivider(),
+          const SizedBox(height: 16),
+
+          // Certificate warning
+          FAlert(
+            icon: const Icon(FLucideIcons.triangleAlert),
+            title: const Text("Este IoT Box no tiene un certificado válido."),
+            subtitle: const Text(
+              "El IoT Box debería obtener un certificado automáticamente al emparejarse con una base de datos. Si no lo hace, intenta reiniciarlo.",
+            ),
+            variant: FAlertVariant.destructive,
+          ),
+          const SizedBox(height: 16),
+
+          FCard(
+            title: const Text('Información del Dispositivo'),
+            child: Column(
+              children: [
+                FTile(
+                  prefix: const Icon(FLucideIcons.idCard),
+                  title: const Text('Identificador'),
+                  subtitle: const Text('iot_box_desktop_sync'),
+                ),
+                if (_showAdvanced) ...[
+                  FTile(
+                    prefix: const Icon(FLucideIcons.network),
+                    title: const Text('Dirección MAC'),
+                    subtitle: const Text('00:1A:2B:3C:4D:5E'),
+                  ),
+                  FTile(
+                    prefix: const Icon(FLucideIcons.cpu),
+                    title: const Text('Versión'),
+                    subtitle: const Text('v26.05.30'),
+                    suffix: FButton(
+                      variant: FButtonVariant.outline,
+                      onPress: () {
+                        showFToast(
+                          context: context,
+                          title: const Text('Verificando actualizaciones... Todos los paquetes están actualizados.'),
+                        );
+                      },
+                      child: const Text('Actualizar'),
+                    ),
+                  ),
+                  FTile(
+                    prefix: const Icon(FLucideIcons.globe),
+                    title: const Text('Dirección IP'),
+                    subtitle: const Text('197.168.1.104'),
+                  ),
+                ],
+                FTile(
+                  prefix: const Icon(FLucideIcons.wifi),
+                  title: const Text('Estado de Internet'),
+                  subtitle: Text(Platform.isWindows ? 'Conexión Ethernet' : 'Wi-Fi: Local_Network'),
+                  suffix: FButton(
+                    variant: FButtonVariant.outline,
+                    onPress: () => setState(() => _currentTab = DashboardTab.wifi),
+                    child: const Text('Configurar'),
+                  ),
+                ),
+                FTile(
+                  prefix: const Icon(FLucideIcons.database),
+                  title: const Text('Base de Datos Odoo'),
+                  subtitle: Text(ref.watch(serverStatusProvider) == ServerStatus.active
+                      ? 'Conectado (${_odooUrlController.text})'
+                      : 'No Conectado'),
+                  suffix: FButton(
+                    variant: FButtonVariant.outline,
+                    onPress: () => setState(() => _currentTab = DashboardTab.odoo),
+                    child: const Text('Configurar'),
+                  ),
+                ),
+                FTile(
+                  prefix: const Icon(FLucideIcons.power),
+                  title: const Text('Dispositivos'),
+                  subtitle: Text('$numDevices dispositivos conectados'),
+                  suffix: FButton(
+                    variant: FButtonVariant.outline,
+                    onPress: () => setState(() => _currentTab = DashboardTab.devices),
+                    child: const Text('Administrar'),
+                  ),
+                ),
+              ],
+            ),
+          ),
+          const SizedBox(height: 16),
+          
+          FCard(
+            title: const Text('Acciones Rápidas'),
+            child: Wrap(
+              spacing: 12,
+              runSpacing: 12,
+              children: [
+                FButton(
+                  onPress: () {
+                    showFToast(
+                      context: context,
+                      title: const Text('Se ha abierto el panel de visualización de estado.'),
+                    );
+                  },
+                  child: const Text('Pantalla de Estado'),
+                ),
+                FButton(
+                  onPress: () {
+                    showFToast(
+                      context: context,
+                      title: const Text('Servidor de impresión abierto.'),
+                    );
+                  },
+                  child: const Text('Servidor de Impresión'),
+                ),
+                if (_showAdvanced) ...[
+                  FButton(
+                    onPress: () {
+                      showFToast(
+                        context: context,
+                        title: const Text('Activando/desactivando el túnel de depuración remota...'),
+                      );
+                    },
+                    child: const Text('Depuración Remota'),
+                  ),
+                  FButton(
+                    onPress: () {
+                      showFToast(
+                        context: context,
+                        title: const Text('Descargando nuevamente los controladores de cajas IoT.'),
+                      );
+                    },
+                    child: const Text('Descargar Handlers'),
+                  ),
+                ],
+              ],
+            ),
+          ),
         ],
       ),
     );
   }
+
+  Widget _buildDevicesTab(BuildContext context, IoTState iotState, IoTManager iotManager) {
+    final theme = FTheme.of(context);
+    final devicesList = iotState.iotDevices.values.toList();
+    final unsupportedList = iotState.unsupportedDevices.values.toList();
+
+    return SingleChildScrollView(
+      child: Column(
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: [
+          Text(
+            'Administración de Dispositivos',
+            style: theme.typography.body.xl2.copyWith(fontWeight: FontWeight.bold),
+          ),
+          const SizedBox(height: 16),
+          const FDivider(),
+          const SizedBox(height: 16),
+
+          if (devicesList.isEmpty && unsupportedList.isEmpty)
+            const Center(
+              child: Padding(
+                padding: EdgeInsets.all(24.0),
+                child: Text('No hay dispositivos conectados.'),
+              ),
+            ),
+
+          if (devicesList.isNotEmpty) ...[
+            Text('Controladores de Sistema Activos', style: theme.typography.body.lg.copyWith(fontWeight: FontWeight.w600)),
+            const SizedBox(height: 12),
+            ...devicesList.map((device) {
+              final isScale = device is ScaleDriver;
+              final isPrinter = device is PrinterDriver;
+
+              return Padding(
+                padding: const EdgeInsets.only(bottom: 12.0),
+                child: FCard(
+                  title: Row(
+                    mainAxisAlignment: MainAxisAlignment.spaceBetween,
+                    children: [
+                      Text(device.deviceName),
+                      FBadge(
+                        child: Text(device.deviceType.toUpperCase()),
+                      ),
+                    ],
+                  ),
+                  subtitle: Column(
+                    crossAxisAlignment: CrossAxisAlignment.start,
+                    children: [
+                      Text('Identificador: ${device.identifier}'),
+                      Text('Conexión: ${device.deviceConnection}'),
+                    ],
+                  ),
+                  child: Column(
+                    crossAxisAlignment: CrossAxisAlignment.start,
+                    children: [
+                      if (isScale) ...[
+                        const SizedBox(height: 12),
+                        Row(
+                          mainAxisAlignment: MainAxisAlignment.spaceBetween,
+                          children: [
+                            Text(
+                              'Peso Simulado: ${device.data['value']} kg',
+                              style: const TextStyle(fontWeight: FontWeight.bold),
+                            ),
+                            Row(
+                              children: [
+                                FButton(
+                                  variant: FButtonVariant.outline,
+                                  onPress: () {
+                                    setState(() {
+                                      device.setSimulatedWeight(0.0);
+                                    });
+                                  },
+                                  child: const Text('Cero'),
+                                ),
+                                const SizedBox(width: 8),
+                                FButton(
+                                  variant: FButtonVariant.outline,
+                                  onPress: () {
+                                    setState(() {
+                                      final current = (device.data['value'] as num).toDouble();
+                                      device.setSimulatedWeight(double.parse((current + 0.500).toStringAsFixed(3)));
+                                    });
+                                  },
+                                  child: const Text('+0.5kg'),
+                                ),
+                              ],
+                            ),
+                          ],
+                        ),
+                      ],
+                      if (isPrinter) ...[
+                        const SizedBox(height: 12),
+                        FButton(
+                          onPress: () {
+                            device.action({
+                              'action': 'print_receipt',
+                              'receipt': '================================\n'
+                                  '        ODOO DESKTOP SYNC       \n'
+                                  '        TEST TICKET SUCCESS      \n'
+                                  '================================\n'
+                                  'System device prints successfully.\n'
+                                  'Date: ${DateTime.now().toLocal()}\n'
+                                  '================================\n'
+                            });
+                            showFToast(
+                              context: context,
+                              title: const Text('Se ha enviado la tarea de impresión de prueba.'),
+                            );
+                          },
+                          prefix: const Icon(FLucideIcons.printer),
+                          child: const Text('Imprimir Ticket de Prueba'),
+                        ),
+                      ],
+                    ],
+                  ),
+                ),
+              );
+            }).toList(),
+          ],
+
+          if (unsupportedList.isNotEmpty) ...[
+            const SizedBox(height: 16),
+            Text('Dispositivos no Soportados', style: theme.typography.body.lg.copyWith(color: theme.colors.destructive, fontWeight: FontWeight.w600)),
+            const SizedBox(height: 12),
+            ...unsupportedList.map((device) {
+              return FTile(
+                prefix: Icon(FLucideIcons.alertTriangle, color: theme.colors.destructive),
+                title: Text(device['name'] ?? 'Dispositivo desconocido'),
+                subtitle: Text('Puerto: ${device['connection']} | Identificador: ${device['identifier']}'),
+              );
+            }).toList(),
+          ],
+        ],
+      ),
+    );
+  }
+
+  Widget _buildWifiTab(BuildContext context) {
+    final theme = FTheme.of(context);
+
+    return SingleChildScrollView(
+      child: Column(
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: [
+          Text(
+            'Configuración Wi-Fi',
+            style: theme.typography.body.xl2.copyWith(fontWeight: FontWeight.bold),
+          ),
+          const SizedBox(height: 16),
+          const FDivider(),
+          const SizedBox(height: 16),
+
+          FCard(
+            title: const Text('Establecer Conexión Inalámbrica'),
+            child: Column(
+              crossAxisAlignment: CrossAxisAlignment.start,
+              children: [
+                FTextField(
+                      control: FTextFieldControl.managed(controller: _wifiSsidController),
+       
+           
+                  label: const Text('Nombre de Red (SSID)'),
+                  description: const Text('Introduce el nombre de tu red Wi-Fi.'),
+                ),
+                const SizedBox(height: 16),
+                FTextField(
+                  control: FTextFieldControl.managed(controller: _wifiPasswordController),
+       
+                  label: const Text('Contraseña'),
+                  description: const Text('Introduce la clave de seguridad.'),
+                  obscureText: true,
+                ),
+                const SizedBox(height: 24),
+                FButton(
+                  onPress: () {
+                    showFToast(
+                      context: context,
+                      title: Text('Conectando a ${_wifiSsidController.text}...'),
+                    );
+                  },
+                  prefix: const Icon(FLucideIcons.wifi),
+                  child: const Text('Conectar'),
+                ),
+              ],
+            ),
+          ),
+        ],
+      ),
+    );
+  }
+
+  Widget _buildOdooTab(BuildContext context) {
+    final theme = FTheme.of(context);
+
+    return SingleChildScrollView(
+      child: Column(
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: [
+          Text(
+            'Servidor Odoo',
+            style: theme.typography.body.xl2.copyWith(fontWeight: FontWeight.bold),
+          ),
+          const SizedBox(height: 16),
+          const FDivider(),
+          const SizedBox(height: 16),
+
+          FCard(
+            title: const Text('Emparejar Base de Datos'),
+            child: Column(
+              crossAxisAlignment: CrossAxisAlignment.start,
+              children: [
+                FTextField(
+                  control: FTextFieldControl.managed(controller: _odooUrlController),
+       
+                  label: const Text('URL del Servidor Odoo'),
+                  description: const Text('Ingresa la dirección web de tu base de datos de Odoo.'),
+                ),
+                const SizedBox(height: 24),
+                FButton(
+                  onPress: () {
+                    showFToast(
+                      context: context,
+                      title: Text('Base de datos guardada: ${_odooUrlController.text}'),
+                    );
+                  },
+                  prefix: const Icon(FLucideIcons.database),
+                  child: const Text('Guardar y Vincular'),
+                ),
+              ],
+            ),
+          ),
+        ],
+      ),
+    );
+  }
+
+  Widget _buildLogsTab(BuildContext context) {
+    final theme = FTheme.of(context);
+
+    return Column(
+      crossAxisAlignment: CrossAxisAlignment.start,
+      children: [
+        Text(
+          'Logs de Actividad',
+          style: theme.typography.body.xl2.copyWith(fontWeight: FontWeight.bold),
+        ),
+        const SizedBox(height: 16),
+        const FDivider(),
+        const SizedBox(height: 16),
+
+        Expanded(
+          child: _logsLoading
+              ? const Center(child: FCircularProgress())
+              : (_logs.isEmpty
+                  ? const Center(
+                      child: Text(
+                        'No hay registros de logs de actividad.',
+                        style: TextStyle(fontStyle: FontStyle.italic),
+                      ),
+                    )
+                  : Container(
+                      width: double.infinity,
+                      padding: const EdgeInsets.all(8),
+                      decoration: BoxDecoration(
+                        color: theme.colors.muted,
+                        borderRadius: BorderRadius.circular(8),
+                      ),
+                      child: ListView.builder(
+                        physics: const ClampingScrollPhysics(),
+                        itemCount: _logs.length,
+                        itemBuilder: (context, index) {
+                          final logLine = _logs[index];
+
+                          Color textColor = theme.colors.foreground;
+                          if (logLine.contains('[ERROR]')) {
+                            textColor = theme.colors.destructive;
+                          } else if (logLine.contains('[WARNING]')) {
+                            textColor = Colors.amber;
+                          } else if (logLine.contains('[INFO]')) {
+                            textColor = Colors.green;
+                          }
+
+                          return Padding(
+                            padding: const EdgeInsets.symmetric(vertical: 2.0),
+                            child: Text(
+                              logLine,
+                              style: TextStyle(
+                                color: textColor,
+                                fontFamily: 'Courier',
+                                fontSize: 12,
+                              ),
+                            ),
+                          );
+                        },
+                      ),
+                    )),
+        ),
+        const SizedBox(height: 16),
+
+        Row(
+          children: [
+            FButton(
+              variant: FButtonVariant.destructive,
+              onPress: _clearLogs,
+              prefix: const Icon(FLucideIcons.trash2),
+              child: const Text('Limpiar Historial'),
+            ),
+            const SizedBox(width: 12),
+            FButton(
+              variant: FButtonVariant.outline,
+              onPress: _loadLogs,
+              prefix: const Icon(FLucideIcons.refreshCw),
+              child: const Text('Refrescar'),
+            ),
+          ],
+        ),
+      ],
+    );
+  }
 }
+

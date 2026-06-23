@@ -79,12 +79,22 @@ class LoggingService {
       }
 
       final timestamp = DateTime.now().toIso8601String().substring(0, 19).replaceFirst('T', ' ');
-      final logLine = '[$timestamp] [$level] $message\n';
-
-      await file.writeAsString(logLine, mode: FileMode.append, flush: true);
       
-      // Mantener salida en consola para monitoreo en vivo en desarrollo
-      print(logLine.trim());
+      final lines = message.split(RegExp(r'\r?\n'));
+      final buffer = StringBuffer();
+      
+      for (int i = 0; i < lines.length; i++) {
+        final line = lines[i];
+        // Evitar loguear una última línea vacía si el mensaje original terminaba con salto de línea
+        if (i == lines.length - 1 && line.isEmpty && lines.length > 1) {
+          continue;
+        }
+        final logLine = '[$timestamp] [$level] $line\n';
+        buffer.write(logLine);
+        print(logLine.trim());
+      }
+
+      await file.writeAsString(buffer.toString(), mode: FileMode.append, flush: true);
     } catch (e) {
       print('Error al escribir log en archivo: $e');
     }

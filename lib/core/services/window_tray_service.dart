@@ -15,7 +15,7 @@ class WindowTrayService {
       size: Size(800, 800),
       minimumSize: Size(700, 450),
       center: true,
-      backgroundColor: Color(0xFF0B0F19),
+      backgroundColor: Colors.white,
       titleBarStyle: TitleBarStyle.normal,
       title: 'Odoo Desktop Sync',
     );

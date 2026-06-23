@@ -1,7 +1,9 @@
 // ignore_for_file: deprecated_member_use
 import 'package:flutter/material.dart';
+import 'package:forui/forui.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import '../../core/providers/dependency_providers.dart';
+import '../../core/themes/colors/colors.semantic.dart';
 
 class StatusBadge extends ConsumerStatefulWidget {
   const StatusBadge({super.key});
@@ -44,19 +46,14 @@ class _StatusBadgeState extends ConsumerState<StatusBadge> with SingleTickerProv
       _controller.stop();
     }
 
-    final badgeColor = isActive ? const Color(0xFF10B981) : Colors.grey.shade500;
+    final semanticColors = Theme.of(context).extension<CmpSemanticColor>();
+    final badgeColor = isActive
+        ? (semanticColors?.positiveLabel ?? const Color(0xFF10B981))
+        : (semanticColors?.neutralLabel ?? Colors.grey.shade500);
     final badgeLabel = isActive ? 'ACTIVO' : 'INACTIVO';
 
-    return Container(
-      padding: const EdgeInsets.symmetric(horizontal: 14, vertical: 8),
-      decoration: BoxDecoration(
-        color: badgeColor.withOpacity(0.1),
-        borderRadius: BorderRadius.circular(20),
-        border: Border.all(
-          color: badgeColor.withOpacity(0.3),
-          width: 1.5,
-        ),
-      ),
+    return FBadge(
+      variant: isActive ? FBadgeVariant.outline : FBadgeVariant.secondary,
       child: Row(
         mainAxisSize: MainAxisSize.min,
         children: [
